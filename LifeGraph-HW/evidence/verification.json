@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-10-22T16:45:52.5279069+08:00",
+  "artifact": "entry-default-unsigned.hap",
+  "bytes": 1384834,
+  "sha256": "DBED4FB4CDB40E8765F47214251858775BD6E501B6F59B1379FA099A6CB02953",
+  "hostTests": 52,
+  "nativeTests": 1,
+  "nativePass": 1,
+  "device": "DevEco emulator 127.0.0.1:5555",
+  "fullAcceptance": "pending",
+  "restartEvidence": "native-restart.jpeg",
+  "relationUiChecks": 8,
+  "relationUiPassed": 8,
+  "historicalNativeAndRelationResults": true,
+  "buttonsUiObservedPassed": 23,
+  "buttonsAuditComplete": false,
+  "backupExportCancelFeedback": "pending confirmation",
+  "deviceTesting": "not run in the pretest review; emulator remains closed at user request",
+  "historicalDeviceResults": true,
+  "currentHapInstalled": false,
+  "pretestReview": "docs/pretest-review.md",
+  "hostTestGroups": {
+    "person": 11,
+    "extended": 13,
+    "nativeAdaptersWithSdkStubs": 10,
+    "core": 18
+  }
+}

@@ -1,0 +1,72 @@
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { window } from '@kit.ArkUI';
+import { ApplicationRuntime } from '../runtime/ApplicationRuntime';
+import { AppServices } from '../application/AppServices';
+
+const DOMAIN = 0x0000;
+
+export default class EntryAbility extends UIAbility {
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    ApplicationRuntime.start();
+    AppStorage.setOrCreate('nativeSystemDark', this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
+  }
+
+  onDestroy(): void {
+    ApplicationRuntime.stop();
+    ApplicationRuntime.onColors = null;
+    AppServices.close().catch((error: Error) => { hilog.error(DOMAIN, 'LifeGraph', '%{public}s', error.message); });
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
+  }
+
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    ApplicationRuntime.onColors = (background: string, text: string): void => {
+      try {
+        const mainWindow = windowStage.getMainWindowSync();
+        mainWindow.setWindowBackgroundColor(background);
+        mainWindow.setWindowSystemBarProperties({ statusBarColor: background, navigationBarColor: background,
+          statusBarContentColor: text, navigationBarContentColor: text }).catch(() => {});
+      } catch (_) {}
+    };
+    ApplicationRuntime.onColors('#F8F1E6', '#3D3329');
+    // Main window is created, set main page for this ability
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+
+    windowStage.loadContent('pages/Index', (err) => {
+      if (err.code) {
+        hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
+        return;
+      }
+      hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+    });
+
+    try {
+      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+    } catch (err) {
+      hilog.error(DOMAIN, 'testTag', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
+    }
+  }
+
+  onWindowStageDestroy(): void {
+    // Main window is destroyed, release UI related resources
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
+  }
+
+  onForeground(): void {
+    ApplicationRuntime.enterForeground();
+    AppStorage.setOrCreate('nativeSystemDark', this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    // Ability has brought to foreground
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
+  }
+
+  onConfigurationUpdate(config: Configuration): void {
+    AppStorage.setOrCreate('nativeSystemDark', config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+  }
+
+  onBackground(): void {
+    ApplicationRuntime.enterBackground();
+    // Ability has back to background
+    hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+  }
+}
