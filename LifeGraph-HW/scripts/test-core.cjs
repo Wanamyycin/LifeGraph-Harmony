@@ -8,6 +8,7 @@ const { randomUUID } = require('node:crypto');
 const { SqlRow, SqlDatabase } = require('../entry/src/main/ets/data/SqlDatabase.ets');
 const { LifeGraphService } = require('../entry/src/main/ets/features/LifeGraphService.ets');
 const { PersonDraft, RelationInput, EventDraft, MediaAsset } = require('../entry/src/main/ets/domain/Models.ets');
+const { AssistantTurn } = require('../entry/src/main/ets/domain/Assistant.ets');
 
 // Real SQLite executes the same SQL as the RDB adapter. This verifies schema,
 // transactions and business semantics, but not HarmonyOS native API behavior.
@@ -327,4 +328,28 @@ test('profile edits validate original name/bio limits and calendar birthdays bef
   await service.saveProfile({ ...original, birthday: '2000-02-29' }, '有效简介', null);
   assert.equal((await service.snapshot()).profile.birthday, '2000-02-29');
   await db.close();
+});
+
+test('assistant history is isolated from business records and roundtrips through backup and reopening', async () => {
+  const testRoot = path.resolve(__dirname, '../.test'); fs.mkdirSync(testRoot, { recursive: true });
+  const file = path.join(testRoot, `assistant-${randomUUID()}.sqlite`);
+  const { db, service } = await fixture(file); const id = await service.savePerson(person('不被AI改动'));
+  await service.saveEvent(event(id)); const before = JSON.stringify(await service.snapshot());
+  const user = new AssistantTurn(); user.id = 'question'; user.text = '总结共同经历'; user.user = true; user.createdAt = 1;
+  const assistant = new AssistantTurn(); assistant.id = 'answer'; assistant.text = '一份建议'; assistant.createdAt = 2;
+  await service.saveAssistantConversation([user, assistant]);
+  assert.equal(JSON.stringify(await service.snapshot()), before);
+  const backup = await service.exportBackup();
+  await service.saveAssistantConversation([]); assert.deepEqual(await service.loadAssistantConversation(), []);
+  await service.restoreBackup(backup); assert.equal((await service.loadAssistantConversation())[1].text, '一份建议');
+  assert.equal(JSON.stringify(await service.snapshot()), before);
+  user.status = 'pending'; await service.saveAssistantConversation([user]);
+  assert.equal(user.status, 'pending'); assert.equal((await service.loadAssistantConversation())[0].status, 'canceled');
+  await assert.rejects(service.saveAssistantConversation([{ id: 'bad' }]), /格式/);
+  assert.equal((await service.snapshot()).events.length, 1);
+  await db.close();
+  const reopened = await fixture(file);
+  assert.equal((await reopened.service.loadAssistantConversation())[0].text, '总结共同经历');
+  assert.equal((await reopened.service.loadAssistantConversation())[0].status, 'canceled');
+  await reopened.db.close(); assert.equal(path.dirname(file), testRoot); fs.unlinkSync(file);
 });

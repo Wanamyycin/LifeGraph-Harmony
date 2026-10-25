@@ -12,7 +12,7 @@
 - 图片和音频选择、沙箱复制、录音、播放和图片缩放；取消编辑清理未引用附件。
 - 个人资料、人数和事件数、四套主题、跟随系统／浅色／深色、自定义事件颜色。
 - 鸿蒙版 ZIP 备份导出、预览和恢复；事务失败回滚、媒体校验和路径限制。
-- 原有 AI 聊天接口与 11 个只读查询工具，超时／取消处理和基础 Markdown 展示。需配置实际可访问的后端地址，真实服务尚待联调。
+- AI 使用说明、连续追问、模糊查找、共同经历查询与只读关系建议；13 个本地工具、可核对的来源、本机聊天保存与清空、复制及常用 Markdown。服务设置弹窗填写 OpenAI 兼容 URL、API Key 和模型 ID，直接连接支持工具调用的模型；配置可安全保存或仅本次使用，不随业务备份导出。真实模型与设备交互尚待验收。
 
 具体完成度、替换决定、未适配部分及验收顺序见 [迁移进度](docs/migration-progress.md)。已发现问题见 [缺陷记录](docs/bugs.md)。
 
@@ -34,6 +34,8 @@
 & 'F:/DevEco Studio/tools/node/node.exe' --disable-warning=ExperimentalWarning scripts/test-core.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-extended.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-native-adapters.cjs
+& 'F:/DevEco Studio/tools/node/node.exe' scripts/test-assistant.cjs
+& 'F:/DevEco Studio/tools/node/node.exe' scripts/test-openai.cjs
 ```
 
 主应用产物：entry/build/default/outputs/default/entry-default-unsigned.hap。
@@ -48,4 +50,6 @@
 
 2026-10-22 按钮专项：修复事件参与者／生活分支／情绪不显示点选状态的问题，并调整同类筛选、外观、标题、主要操作和附件的状态更新。最新主程序构建及 34 项主机测试通过，分阶段累计 23 个不同设备检查点通过；整套设备脚本未完整通过。按用户要求停止设备检查，备份导出取消提示、实际媒体／录音和真实 AI 全流程仍待验证，详见 [按钮检查记录](docs/button-audit.md)。
 
-2026-10-22 手测前对照排查：补齐分支多选、表单内分类管理、人物图谱关系筛选与空间概览；修正个人分支图范围、历史关系编辑、头像校验与清理、备份／录音故障处理、搜索和卡片刷新，并对齐预设色与资料校验。当前本地主机测试为 52 项；本轮新版没有安装或执行设备测试。原版依据、修改范围、验证边界及手测顺序见 [手测前排查记录](docs/pretest-review.md)。
+2026-10-22 手测前对照排查：补齐分支多选、表单内分类管理、人物图谱关系筛选与空间概览；修正个人分支图范围、历史关系编辑、头像校验与清理、备份／录音故障处理、搜索和卡片刷新，并对齐预设色与资料校验。当时本地主机测试为 52 项；该轮新版没有安装或执行设备测试。原版依据、修改范围、验证边界及手测顺序见 [手测前排查记录](docs/pretest-review.md)。
+
+2026-10-25 AI 专项：按已批准方案完善查询、上下文、引用、关系分析工具和原生聊天界面；聊天随本机备份保存／恢复，清空不修改业务记录。按用户要求改为 OpenAI 兼容 API 直连与弹窗配置，密钥使用独立安全存储。当前本地回归为 94 项；主机验证后已按用户授权安装当前 HAP，完成一条 DeepSeek 真实查询及配置／聊天重开读回；未验收有记录的关系分析质量，详见 [API 手测记录](docs/ai-api-device-check.md)。实现范围、容量／上下文限制及待验收项目见 [AI 助手方案与记录](docs/ai-assistant-design.md)。可在 DevEco 打开 components/AssistantPreview.ets 查看浅色／深色界面示例，演示文字不代表真实分析。

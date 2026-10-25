@@ -1,5 +1,6 @@
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { Person } from '../domain/Person';
 import { AppSnapshot, EventCard, EventDraft, NamedItem, Palette, PersonDraft, ProfileConfig,
   MediaAsset, RelationEdge, RelationInput, paletteFor } from '../domain/Models';
@@ -13,26 +14,24 @@ import { findEvents, formatBytes } from '../features/EventQuery';
 import { MediaFiles } from '../data/MediaFiles';
 import { VoiceRecorder } from '../data/VoiceRecorder';
 import { EventAttachments } from './EventAttachments';
-import { MarkdownText } from './MarkdownText';
+import { AssistantBubble } from './AssistantBubble';
+import { AssistantReference, AssistantTurn, referenceUrl } from '../domain/Assistant';
+import { AssistantController, AssistantState } from '../features/AssistantController';
+import { ServiceConversationStore, NativeAssistantRunner } from '../data/NativeAssistant';
+import { safeMarkdownLink } from '../features/Markdown';
+import { AIServiceDialog } from './AIServiceDialog';
+import { OpenAIConfig, prepareOpenAIConfig } from '../domain/OpenAIConfig';
+import { AIConfigVault } from '../data/AIConfigVault';
 import { RelationEditorItem } from './RelationEditorItem';
 import { RelationEditorRow } from './RelationEditorRow';
 import { ChoiceChip } from './ChoiceChip';
 import { ActionButton } from './ActionButton';
 import { PageHeading } from './PageHeading';
-import { AIAgent } from '../features/AIAgent';
-import { NativeChatTransport } from '../data/NativeChatTransport';
 import { NativeBackup } from '../data/NativeBackup';
 
 class RouteParam {
   id: string = '';
   constructor(id: string = '') { this.id = id; }
-}
-
-class ChatLine {
-  id: string;
-  text: string;
-  user: boolean;
-  constructor(text: string, user: boolean) { this.id = Date.now().toString() + ':' + Math.random().toString(); this.text = text; this.user = user; }
 }
 
 @Component
@@ -85,14 +84,27 @@ export struct NativeApp {
   @State imageScale: number = 1;
   @State imageBaseScale: number = 1;
   @State newColor: string = '';
-  @State chatLines: ChatLine[] = [];
+  @State chatLines: AssistantTurn[] = [];
   @State question: string = '';
   @State aiBusy: boolean = false;
-  @State apiAddress: string = '';
+  @State aiReady: boolean = false;
+  @State aiError: string = '';
+  @State aiStatus: string = '';
+  @State aiConfigured: boolean = false;
+  @State aiModelLabel: string = '';
+  @State aiVisibleCount: number = 40;
   @State backupMessage: string = '';
   @State storageLabel: string = '尚未统计';
-  private aiTransport: NativeChatTransport | null = null;
-  private chatGeneration: number = 0;
+  private assistant: AssistantController | null = null;
+  private aiScroller: Scroller = new Scroller();
+  private aiScrollTimer: number = -1;
+  private chatSignature: string = '';
+  private aiLinkGeneration: number = 0;
+  private aiConfig: OpenAIConfig | null = null;
+  private aiVault: AIConfigVault = new AIConfigVault();
+  private aiSettingsController: CustomDialogController | null = null;
+  private aiSettingsSaving: boolean = false;
+  private aiSettingsError: string = '';
   private files: MediaFiles | null = null;
   private voice: VoiceRecorder = new VoiceRecorder();
   private recordingTimer: number = -1;
@@ -104,7 +116,7 @@ export struct NativeApp {
   aboutToAppear(): void {
     this.alive = true;
     this.controller.bind(() => this.goBack());
-    ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } };
+    ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } if (this.aiBusy) { this.assistant?.cancel(); } };
     this.preview = ApplicationRuntime.useVisualPreview(this.forcePreview);
     if (this.preview) {
       this.data = this.previewData; this.themeChanged(); this.ready = true;
@@ -116,7 +128,8 @@ export struct NativeApp {
 
   aboutToDisappear(): void {
     this.alive = false; this.controller.clear(); this.thumbnailGeneration++;
-    this.chatGeneration++; this.aiTransport?.cancel();
+    this.aiLinkGeneration++; this.assistant?.dispose(); clearTimeout(this.aiScrollTimer);
+    try { this.aiSettingsController?.close(); } catch (_) {} this.aiSettingsController = null;
     ApplicationRuntime.onBackground = null; clearInterval(this.recordingTimer);
     this.voice.release().catch(() => {});
   }
@@ -130,6 +143,8 @@ export struct NativeApp {
       this.files = new MediaFiles(context); await this.files.initialize();
       await this.cleanUnusedMedia(true);
       await this.refresh();
+      await this.loadAIConfig();
+      await this.setupAssistant();
       if (this.alive) {
         try { await this.files.sweep(this.data.mediaAssets.map((asset: MediaAsset) => asset.storagePath)); } catch (_) {}
       }
@@ -202,7 +217,7 @@ export struct NativeApp {
     if (current === 'personEditor' || current === 'eventEditor' || current === 'profileEditor') {
       if (this.pendingMediaIds.length > 0) { this.cleanPendingMedia(); }
     }
-    if (current === 'ai') { this.chatGeneration++; this.aiTransport?.cancel(); this.aiBusy = false; }
+    if (current === 'ai') { this.aiLinkGeneration++; this.assistant?.cancel(); clearTimeout(this.aiScrollTimer); }
     if (this.paths.size() > 0) { this.paths.pop(); this.error = ''; this.notice = ''; return true; }
     if (this.tab !== 0) { this.tab = 0; return true; }
     return false;
@@ -466,26 +481,112 @@ export struct NativeApp {
     if (this.error.length === 0) { this.newColor = ''; }
   }
 
-  private async saveApiAddress(): Promise<void> {
-    const config = JSON.parse(JSON.stringify(this.data.profile)) as ProfileConfig;
-    config.apiBaseUrl = this.apiAddress.trim().replace(/\/+$/, '');
-    await this.mutate(async (): Promise<void> => { await this.core().saveProfile(config, this.self()?.description ?? '', this.self()?.avatarAssetId ?? null); }, 'AI 服务地址已保存');
+  private async loadAIConfig(): Promise<void> {
+    try {
+      this.aiConfig = await this.aiVault.load(); this.aiConfigured = this.aiConfig !== null;
+      this.aiModelLabel = this.aiConfig?.model ?? ''; this.aiSettingsError = '';
+    } catch (_) {
+      this.aiSettingsError = '安全配置暂时无法读取。可重新填写并保存，或取消“在本机安全保存”仅本次使用。';
+    }
+  }
+
+  private openAISettings(): void {
+    if (this.aiBusy || this.busy || !this.alive) { return; }
+    this.aiSettingsController = new CustomDialogController({
+      builder: AIServiceDialog({ initialUrl: this.aiConfig?.url ?? '', initialModel: this.aiConfig?.model ?? '',
+        hasKey: this.aiConfig !== null, initialError: this.aiSettingsError, palette: this.colors,
+        onSave: (url: string, key: string, model: string, remember: boolean) => this.saveAIConfig(url, key, model, remember) }),
+      autoCancel: false, customStyle: true, alignment: DialogAlignment.Center,
+      onWillDismiss: (action: DismissDialogAction) => { if (!this.aiSettingsSaving) { action.dismiss(); } }
+    });
+    this.aiSettingsController.open();
+  }
+
+  private async saveAIConfig(url: string, key: string, model: string, remember: boolean): Promise<void> {
+    if (this.preview) { throw new Error('界面预览不保存配置，请运行实际应用'); }
+    if (this.aiBusy || this.busy || this.aiSettingsSaving) { throw new Error('请等待当前操作结束后再保存'); }
+    this.aiSettingsSaving = true;
+    try {
+      const config = prepareOpenAIConfig(url, key, model, this.aiConfig);
+      if (remember) { await this.aiVault.save(config); }
+      if (!this.alive) { return; }
+      this.aiConfig = config; this.aiConfigured = true; this.aiModelLabel = config.model; this.aiSettingsError = ''; this.error = '';
+      this.notice = remember ? 'AI 配置已安全保存' : 'AI 配置已应用，仅本次使用';
+    } finally { this.aiSettingsSaving = false; }
   }
 
   private async askAI(): Promise<void> {
     if (this.preview) { this.error = '请在模拟器或真机中连接 AI 服务'; return; }
     if (this.aiBusy || this.busy || this.question.trim().length === 0) { return; }
-    if (this.data.profile.apiBaseUrl.length === 0) { this.error = '请先保存可访问的 AI 服务地址'; return; }
-    const question = this.question.trim(); this.question = '';
-    this.chatLines = [...this.chatLines, new ChatLine(question, true)]; this.aiBusy = true; this.error = '';
-    const generation = ++this.chatGeneration;
-    const transport = new NativeChatTransport(this.data.profile.apiBaseUrl); this.aiTransport = transport;
-    try {
-      const answer = await new AIAgent(this.core(), transport).ask(question);
-      if (this.alive && generation === this.chatGeneration) { this.chatLines = [...this.chatLines, new ChatLine(answer, false)]; }
-    } catch (error) {
-      if (this.alive && generation === this.chatGeneration) { this.error = readable(error); this.question = question; }
-    } finally { if (this.alive && generation === this.chatGeneration) { this.aiBusy = false; } }
+    if (this.aiConfig === null) { this.openAISettings(); return; }
+    if (!this.aiReady || this.assistant === null) { this.error = '聊天记录尚未就绪，请稍后或清空聊天后重试'; return; }
+    const question = this.question.trim(); this.question = ''; this.error = '';
+    await this.assistant.send(question);
+  }
+
+  private async setupAssistant(): Promise<void> {
+    this.aiLinkGeneration++;
+    await this.assistant?.cancel();
+    this.assistant?.dispose(); this.aiReady = false;
+    this.assistant = new AssistantController(new ServiceConversationStore(this.core()),
+      () => {
+        if (this.aiConfig === null) { throw new Error('请先填写接口 URL、API Key 和模型名称'); }
+        return new NativeAssistantRunner(this.core(), this.aiConfig);
+      }, (state: AssistantState) => {
+        if (!this.alive) { return; }
+        this.chatLines = state.turns; this.aiBusy = state.busy; this.aiReady = state.ready; this.aiError = state.error; this.aiStatus = state.progress;
+        if (state.turns.length === 0) { this.aiVisibleCount = 40; }
+        const last = state.turns[state.turns.length - 1]; const signature = state.turns.length.toString() + ':' + (last?.id ?? '') + ':' + (last?.status ?? '');
+        if (signature !== this.chatSignature) { this.chatSignature = signature; this.scrollChat(); }
+      }, (text: string) => { if (this.alive) { this.aiStatus = text; } });
+    await this.assistant.load();
+  }
+
+  private scrollChat(): void {
+    clearTimeout(this.aiScrollTimer);
+    this.aiScrollTimer = setTimeout(() => {
+      const pages = this.paths.getAllPathName();
+      if (this.alive && pages[pages.length - 1] === 'ai') { try { this.aiScroller.scrollEdge(Edge.Bottom); } catch (_) {} }
+    }, 60);
+  }
+
+  private clearConversation(): void {
+    this.getUIContext().showAlertDialog({ title: '清空聊天记录？', message: '本机聊天内容将清空，人物、关系和事件保留。已有备份文件不受影响。',
+      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '清空聊天', action: () => { this.aiLinkGeneration++; this.question = ''; this.assistant?.clear(); } } });
+  }
+
+  private async copyAnswer(text: string): Promise<void> {
+    try { await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text)); this.notice = '已复制全文'; }
+    catch (_) { this.error = '复制未完成，可长按文字复制'; }
+  }
+
+  private async assistantLink(url: string, refs: AssistantReference[]): Promise<void> {
+    if (!this.alive) { return; }
+    const generation = ++this.aiLinkGeneration;
+    const safe = safeMarkdownLink(url);
+    if (safe.length === 0) { this.error = '该链接无法打开'; return; }
+    if (/^https?:\/\//i.test(safe)) {
+      try { await (this.getUIContext().getHostContext() as common.UIAbilityContext).startAbility({ action: 'ohos.want.action.viewData', uri: safe, entities: ['entity.system.browsable'] }); }
+      catch (_) { this.error = '系统浏览器未能打开该链接'; }
+      return;
+    }
+    const ref = refs.find((entry: AssistantReference) => referenceUrl(entry) === safe);
+    if (ref === undefined) { this.error = '该引用未在查询结果中核对'; return; }
+    await this.assistant?.cancel();
+    if (!this.alive || generation !== this.aiLinkGeneration) { return; }
+    if (ref.kind === 'event') {
+      if (this.data.events.some((card: EventCard) => card.event.id === ref.id)) { this.open('event', ref.id); }
+      else { this.error = '原事件已删除或已被恢复的备份替换'; }
+    } else if (ref.kind === 'person') {
+      if (this.person(ref.id) === undefined) { this.error = '原人物已删除或已被恢复的备份替换'; }
+      else if (ref.id === this.data.profile.defaultPersonId) { this.editProfile(); }
+      else { this.open('person', ref.id); }
+    } else if (ref.id === 'ai') { this.notice = 'AI 提供查询与分析建议；人物、事件和手动强度由你修改。'; }
+    else if (['people', 'events', 'search', 'appearance', 'backup'].includes(ref.id)) {
+      if (ref.id === 'events') { this.filterBranchIds = []; }
+      if (ref.id === 'backup') { this.updateStorage(); }
+      this.open(ref.id);
+    }
   }
 
   private backup(): NativeBackup {
@@ -524,10 +625,12 @@ export struct NativeApp {
   private async restoreBackup(uri: string): Promise<void> {
     this.backupMessage = '正在校验并恢复记录…';
     await this.mutate(async (): Promise<void> => {
+      await this.assistant?.cancel();
       await this.backup().restore(uri);
       this.files = new MediaFiles(this.getUIContext().getHostContext() as common.UIAbilityContext);
       this.graphImages = new Map<string, string>(); this.graphRelationIds = []; this.graphBranchIds = [];
       this.filterBranchIds = []; this.chatLines = [];
+      await this.setupAssistant();
     }, '记录已恢复');
     this.backupMessage = this.error.length === 0 ? '记录已恢复，原有备份文件保留不变。' : '';
     if (this.error.length === 0) { this.updateStorage(); }
@@ -840,7 +943,7 @@ export struct NativeApp {
         this.menu('生活分支图谱', () => { this.graphBranchIds = []; this.open('branchGraph'); })
         this.menu('情绪标签', () => this.openTags('emotions'))
         this.menu('外观与主题', () => this.open('appearance'))
-        this.menu('AI 生活助手', () => { this.apiAddress = this.data.profile.apiBaseUrl; this.open('ai'); })
+        this.menu('AI 生活助手', () => { this.open('ai'); this.scrollChat(); })
         this.menu('本地备份与恢复', () => { this.backupMessage = ''; this.open('backup'); this.updateStorage(); })
         Text('本机记录 · 无需登录').fontSize(12).fontColor(this.colors.muted).padding(12)
       }.width('100%').padding({ bottom: 24, top: 8 }).enabled(!this.busy)
@@ -903,34 +1006,55 @@ export struct NativeApp {
   @Builder
   aiPage() {
     Column({ space: 12 }) {
-      Row({ space: 8 }) {
-        TextInput({ text: this.apiAddress, placeholder: 'AI 服务地址，例如 https://你的服务' }).fontSize(13).layoutWeight(1)
-          .id('ai-address')
-          .fontColor(this.colors.text).backgroundColor(this.colors.card).onChange((value: string) => { this.apiAddress = value; })
-        Button('保存').fontSize(13).backgroundColor(this.colors.primary).enabled(!this.aiBusy && !this.busy).onClick(() => this.saveApiAddress())
+      Row({ space: 6 }) {
+        Button('使用说明').fontSize(12).fontColor(this.colors.primary).backgroundColor(this.colors.soft).enabled(this.aiReady && !this.aiBusy)
+          .id('ai-help').onClick(() => this.assistant?.showHelp())
+        Button('服务设置').fontSize(12).fontColor(this.colors.primary).backgroundColor(Color.Transparent).enabled(!this.aiBusy && !this.busy)
+          .id('ai-service-settings').onClick(() => this.openAISettings())
+        Blank()
+        Button('清空').fontSize(12).fontColor(this.colors.muted).backgroundColor(Color.Transparent).enabled(!this.busy && (this.aiReady || this.aiError.length > 0))
+          .id('ai-clear').onClick(() => this.clearConversation())
       }
-      Text('仅发送本次查询需要的记录；图片与录音不会默认上传。').fontSize(12).fontColor(this.colors.muted)
-      List({ space: 14 }) {
-        if (this.chatLines.length === 0) {
-          ListItem() { this.empty('向生活提一个问题', '例如：这个月记录了哪些开心的事？') }
-        }
-        ForEach(this.chatLines, (line: ChatLine) => {
+      if (this.aiConfigured) { Text('当前模型：' + this.aiModelLabel).fontSize(12).fontColor(this.colors.muted).width('100%') }
+      if (this.aiError.length > 0) { Text(this.aiError).fontSize(13).fontColor(this.colors.danger).width('100%').copyOption(CopyOptions.LocalDevice) }
+      List({ space: 14, scroller: this.aiScroller }) {
+        if (this.chatLines.length > this.aiVisibleCount) {
           ListItem() {
-            Column({ space: 7 }) {
-              Text(line.user ? '我' : '生活助手').fontSize(12).fontColor(this.colors.primary)
-              if (line.user) { Text(line.text).fontSize(16).fontColor(this.colors.text).lineHeight(25).width('100%').copyOption(CopyOptions.LocalDevice) }
-              else { MarkdownText({ content: line.text, palette: this.colors }) }
-            }.alignItems(HorizontalAlign.Start).padding(16).width('100%').backgroundColor(line.user ? this.colors.soft : this.colors.card).borderRadius(16)
+            Button('查看更早的聊天（还有' + (this.chatLines.length - this.aiVisibleCount).toString() + '条）').fontSize(13)
+              .fontColor(this.colors.primary).backgroundColor(this.colors.soft).width('100%').onClick(() => { this.aiVisibleCount += 40; })
           }
-        }, (line: ChatLine) => line.id)
-        if (this.aiBusy) { ListItem() { Text('正在查询你的生活记录…').fontSize(14).fontColor(this.colors.muted).padding(12) } }
+        }
+        if (this.chatLines.length === 0) {
+          ListItem() {
+            Column({ space: 14 }) {
+              this.empty('找回记忆，也换个角度看关系', '可以描述模糊的线索，或问一段共同经历。关系分析只给建议。')
+              ForEach(['总结我和某人的共同经历，分析我们的关系', '找一找那次不太愉快的聚餐', '最近三个月有哪些开心的事？'], (text: string) => {
+                Button(text).fontSize(13).fontColor(this.colors.primary).backgroundColor(this.colors.soft).width('100%')
+                  .onClick(() => { this.question = text; })
+              })
+              if (!this.aiConfigured) { Text('在服务设置中填写 URL、API Key 和模型名称后即可查询；使用说明可直接在本机阅读。').fontSize(12).fontColor(this.colors.muted) }
+            }.width('100%').padding({ bottom: 12 })
+          }
+        }
+        ForEach(this.chatLines.slice(-this.aiVisibleCount), (line: AssistantTurn) => {
+          ListItem() {
+            AssistantBubble({ turn: line, palette: this.colors, onCopy: (text: string) => this.copyAnswer(text),
+              onRetry: (text: string) => { if (!this.aiBusy) { this.question = text; } },
+              onLink: (url: string, refs: AssistantReference[]) => this.assistantLink(url, refs) })
+          }
+        }, (line: AssistantTurn) => line.id + ':' + line.status)
+        if (this.aiBusy) { ListItem() { Text(this.aiStatus || '正在查询你的生活记录…').fontSize(14).fontColor(this.colors.muted).padding(12) } }
       }.width('100%').layoutWeight(1)
       Row({ space: 8 }) {
         TextInput({ text: this.question, placeholder: '想了解自己的哪段生活？' }).layoutWeight(1).fontColor(this.colors.text).backgroundColor(this.colors.card)
-          .id('ai-question')
-          .enabled(!this.aiBusy).onChange((value: string) => { this.question = value; }).onSubmit(() => this.askAI())
-        Button(this.aiBusy ? '查询中' : '发送').backgroundColor(this.colors.primary)
-          .enabled(!this.aiBusy && !this.busy && this.question.trim().length > 0).id('ai-send').onClick(() => this.askAI())
+          .id('ai-question').maxLength(6000)
+          .enabled(!this.aiBusy && this.aiReady).onChange((value: string) => { this.question = value; }).onSubmit(() => this.askAI())
+        if (this.aiBusy) {
+          Button('停止').backgroundColor(this.colors.soft).fontColor(this.colors.text).id('ai-stop').onClick(() => this.assistant?.cancel())
+        } else {
+          Button('发送').backgroundColor(this.colors.primary).enabled(this.aiReady && !this.busy && this.question.trim().length > 0)
+            .id('ai-send').onClick(() => this.askAI())
+        }
       }
     }.width('100%').layoutWeight(1)
   }
@@ -939,7 +1063,8 @@ export struct NativeApp {
   backupPage() {
     Column({ space: 20 }) {
       Text('把生活记录带在自己手里').fontSize(23).fontWeight(FontWeight.Medium).fontColor(this.colors.text).width('100%')
-      Text('备份包含人物、关系、事件、图片、语音和个人设置。').fontSize(15).fontColor(this.colors.muted).width('100%')
+      Text('备份包含人物、关系、事件、图片、语音、个人设置和聊天记录。').fontSize(15).fontColor(this.colors.muted).width('100%')
+      Text('AI 服务配置和密钥不包含在备份中，换设备后需重新填写。').fontSize(12).fontColor(this.colors.muted).width('100%')
       Text('当前人物 ' + this.people().length + ' 位 · 事件 ' + this.data.events.length + ' 条').fontSize(14).fontColor(this.colors.primary).width('100%')
       Text(this.storageLabel).fontSize(13).fontColor(this.colors.muted).width('100%')
       ActionButton({ label: '导出备份', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.exportBackup() })

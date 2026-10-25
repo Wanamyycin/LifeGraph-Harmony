@@ -144,7 +144,7 @@ test('AI enforces a round limit and rejects unknown tools or bad time ranges', a
   const data = graphFixture(); let rounds = 0;
   const transport = { async chat() { rounds++; const reply = new ChatReply(); reply.kind = 'tool_calls'; const call = new ToolCall(); call.name = 'countEvents'; call.id = `tool-${rounds}`; reply.tool_calls = [call]; return reply; } };
   await assert.rejects(new AIAgent({ snapshot: async () => data }, transport).ask('重复查询'), /具体的问题/);
-  assert.equal(rounds, 5);
+  assert.equal(rounds, 8);
   const bad = new ToolCall(); bad.name = 'deleteEverything';
   assert.throws(() => executeTool(data, bad), /不支持/);
   bad.name = 'getEventsByDateRange'; bad.arguments.from = 10; bad.arguments.to = 1;
@@ -166,7 +166,7 @@ test('AI resolves local names, event links, emotion synonyms and reports truncat
   assert.equal(query('searchPersons', { query: '' }).items[0].avatarAssetId, undefined);
   for (let i = 0; i < 110; i++) { const p = new Person(); p.id = 'extra-' + i; p.name = '人' + i; data.persons.push(p); }
   const result = query('searchPersons', { query: '' });
-  assert.equal(result.items.length, 100); assert.equal(result.total, 114); assert.equal(result.truncated, true);
+  assert.equal(result.items.length, 50); assert.equal(result.total, 114); assert.equal(result.truncated, true); assert.equal(result.nextOffset, 50);
 });
 
 test('native file adapter honors relative SDK offsets and partial reads and writes', async () => {

@@ -4,6 +4,7 @@ import { AppSnapshot, EventCard, EventDraft, EventRecord, MediaAsset, NamedItem,
 import { SqlConnection, SqlDatabase, SqlRow, SqlValue } from '../data/SqlDatabase';
 import { ACCOUNT_SCHEMA } from '../data/Schema';
 import { BACKUP_TABLES, BackupEnvelope, BackupTable } from '../domain/Backup';
+import { AssistantTurn, decodeConversation, encodeConversation } from '../domain/Assistant';
 
 export class LifeGraphService {
   private db: SqlDatabase;
@@ -260,6 +261,20 @@ export class LifeGraphService {
     await this.db.transaction(async (c: SqlConnection): Promise<void> => {
       await c.execute('INSERT INTO media_assets(id,storage_path,mime_type,media_kind,created_at) VALUES(?,?,?,?,?)',
         [asset.id, asset.storagePath, asset.mimeType, asset.mediaKind, this.now()]);
+    });
+  }
+
+  async loadAssistantConversation(): Promise<AssistantTurn[]> {
+    return this.db.read(async (c: SqlConnection): Promise<AssistantTurn[]> => {
+      const rows = await c.query('SELECT value FROM app_config WHERE key=?', ['assistant_conversation_v1']);
+      return rows.length === 0 ? [] : decodeConversation(rows[0].text('value'));
+    });
+  }
+
+  async saveAssistantConversation(turns: AssistantTurn[]): Promise<void> {
+    const value = encodeConversation(turns);
+    await this.db.transaction(async (c: SqlConnection): Promise<void> => {
+      await c.execute('INSERT OR REPLACE INTO app_config(key,value) VALUES(?,?)', ['assistant_conversation_v1', value]);
     });
   }
 

@@ -1,9 +1,9 @@
 {
-  "recordedAt": "2026-10-22T16:45:52.5279069+08:00",
+  "recordedAt": "2026-10-25",
   "artifact": "entry-default-unsigned.hap",
-  "bytes": 1384834,
-  "sha256": "DBED4FB4CDB40E8765F47214251858775BD6E501B6F59B1379FA099A6CB02953",
-  "hostTests": 52,
+  "bytes": 1672818,
+  "sha256": "335361DE16EB3FF75C222F29362DED8375E04DC28A48168AE9FAAB7765F48BB8",
+  "hostTests": 94,
   "nativeTests": 1,
   "nativePass": 1,
   "device": "DevEco emulator 127.0.0.1:5555",
@@ -15,14 +15,32 @@
   "buttonsUiObservedPassed": 23,
   "buttonsAuditComplete": false,
   "backupExportCancelFeedback": "pending confirmation",
-  "deviceTesting": "not run in the pretest review; emulator remains closed at user request",
+  "deviceTesting": "Current HAP installed on running DevEco emulator; 9 API settings, live short query and process-restart checks recorded in docs/ai-api-device-check.md",
   "historicalDeviceResults": true,
-  "currentHapInstalled": false,
+  "currentHapInstalled": true,
   "pretestReview": "docs/pretest-review.md",
   "hostTestGroups": {
-    "person": 11,
-    "extended": 13,
     "nativeAdaptersWithSdkStubs": 10,
-    "core": 18
+    "assistant": 28,
+    "extended": 13,
+    "person": 11,
+    "core": 19,
+    "openaiCompatibleTransportAndVault": 13
+  },
+  "assistantReview": "docs/ai-assistant-design.md",
+  "actualModelEvaluation": "partial: one short DeepSeek Flash count query passed on empty business database; nonempty retrieval, followups and relationship analysis pending",
+  "directApiReview": "docs/ai-assistant-design.md",
+  "aiDeviceChecks": 9,
+  "aiUserQuestionsSent": 1,
+  "aiProviderTokenUsage": "not collected; no exact cost claimed",
+  "aiDeviceReview": "docs/ai-api-device-check.md",
+  "synchronizedRepositoryVerification": {
+    "date": "2026-10-25",
+    "hostTests": 94,
+    "build": "passed",
+    "bytes": 1672510,
+    "sha256": "70BAE5A034633FD4A571FC42F02C9F7402F693C3F98791106481C4B738DB7201",
+    "installed": false,
+    "note": "Rebuilt in the Git repository after synchronization; device results above refer to the source-workspace HAP."
   }
 }
