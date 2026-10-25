@@ -33,15 +33,15 @@ export struct AIServiceDialog {
         Text('使用支持工具调用的 OpenAI 兼容模型。问题和必要的记录文字将直接发送给你填写的服务。')
           .fontSize(13).fontColor(this.palette.muted).width('100%')
         Text('接口 URL').fontSize(14).fontColor(this.palette.text).width('100%')
-        TextInput({ text: this.url, placeholder: 'https://api.example.com/v1' }).maxLength(2048).id('ai-address')
+        TextInput({ text: this.url, placeholder: 'https://api.example.com/v1' }).maxLength(2048).id('ai-address').placeholderColor(this.palette.muted).caretColor(this.palette.primary)
           .fontColor(this.palette.text).backgroundColor(this.palette.card).onChange((value: string) => { this.url = value; })
         Text('可填根地址、/v1 地址或完整 /chat/completions 地址。').fontSize(12).fontColor(this.palette.muted).width('100%')
         Text('API Key').fontSize(14).fontColor(this.palette.text).width('100%')
-        TextInput({ text: this.apiKey, placeholder: this.hasKey ? '已配置；地址不变时留空可保留' : '填写 API Key' }).type(InputType.Password)
+        TextInput({ text: this.apiKey, placeholder: this.hasKey ? '已配置；地址不变时留空可保留' : '填写 API Key' }).type(InputType.Password).placeholderColor(this.palette.muted).caretColor(this.palette.primary)
           .enableAutoFill(false).maxLength(4096).id('ai-api-key').fontColor(this.palette.text).backgroundColor(this.palette.card)
           .onChange((value: string) => { this.apiKey = value; })
         Text('模型名称').fontSize(14).fontColor(this.palette.text).width('100%')
-        TextInput({ text: this.model, placeholder: '填写服务提供方的模型 ID' }).maxLength(200).id('ai-model')
+        TextInput({ text: this.model, placeholder: '填写服务提供方的模型 ID' }).maxLength(200).id('ai-model').placeholderColor(this.palette.muted).caretColor(this.palette.primary)
           .fontColor(this.palette.text).backgroundColor(this.palette.card).onChange((value: string) => { this.model = value; })
         Row({ space: 10 }) {
           Checkbox({ name: 'remember-ai-config' }).select(this.remember).selectedColor(this.palette.primary).id('ai-remember')
@@ -53,7 +53,7 @@ export struct AIServiceDialog {
         if (this.error.length > 0) { Text(this.error).fontSize(13).fontColor(this.palette.danger).width('100%') }
         Row({ space: 12 }) {
           Button('取消').layoutWeight(1).fontColor(this.palette.text).backgroundColor(this.palette.soft).onClick(() => { this.apiKey = ''; this.controller?.close(); })
-          Button(this.saving ? '正在保存…' : '保存配置').layoutWeight(1).backgroundColor(this.palette.primary).id('ai-save-config').onClick(() => this.save())
+          Button(this.saving ? '正在保存…' : '保存配置').layoutWeight(1).backgroundColor(this.palette.primary).fontColor(this.palette.onPrimary).id('ai-save-config').onClick(() => this.save())
         }.width('100%')
       }.padding(22).width('100%').enabled(!this.saving)
     }.constraintSize({ maxHeight: '85%' }).width('100%').backgroundColor(this.palette.paper).borderRadius(22)

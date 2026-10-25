@@ -11,21 +11,21 @@ window.ReactNativeWebView={postMessage:function(message){
   html, body {
     width: 100%; height: 100%;
     overflow: hidden;
-    background: #201E1B;
+    background: #222D27;
     font-family: -apple-system, sans-serif;
   }
   svg { width: 100%; height: 100%; display: block; }
   .person-node text {
-    font-size: 11px; fill: #F2E9DC; text-anchor: middle; font-weight: 600;
+    font-size: 11px; fill: #E6ECE2; text-anchor: middle; font-weight: 600;
   }
   .event-node text {
-    font-size: 10px; fill: #BDB1A0; text-anchor: middle;
+    font-size: 10px; fill: #A4B1A5; text-anchor: middle;
   }
   .branch-node text {
-    font-size: 12px; fill: #F2E9DC; text-anchor: middle; font-weight: 600;
+    font-size: 12px; fill: #E6ECE2; text-anchor: middle; font-weight: 600;
   }
   .branch-char {
-    font-size: 18px; fill: #F2E9DC; text-anchor: middle;
+    font-size: 18px; fill: #E6ECE2; text-anchor: middle;
     dominant-baseline: central; font-weight: 700;
   }
 </style>
@@ -58,7 +58,7 @@ window.ReactNativeWebView={postMessage:function(message){
     if (!data || (!data.personNodes.length && !data.eventNodes.length)) {
       g.append("text")
         .attr("text-anchor", "middle")
-        .attr("fill", "#BDB1A0")
+        .attr("fill", "#A4B1A5")
         .attr("font-size", "15")
         .text("暂无数据");
       return;
@@ -155,7 +155,7 @@ window.ReactNativeWebView={postMessage:function(message){
 
     var link = g.append("g").selectAll("line")
       .data(links).enter().append("line")
-      .attr("stroke", function (d) { return d.color || "#544A3D"; })
+      .attr("stroke", function (d) { return d.color || "#3A473D"; })
       .attr("stroke-width", 2)
       .attr("stroke-opacity", 0.5);
 

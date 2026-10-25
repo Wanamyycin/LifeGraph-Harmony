@@ -83,7 +83,7 @@ export struct VoicePlayer {
   build() {
     Column({ space: 8 }) {
       Row({ space: 12 }) {
-        Button(this.loading ? '…' : (this.playing ? '暂停' : '播放')).fontSize(14).backgroundColor(this.palette.primary).enabled(!this.loading).onClick(() => this.toggle())
+        Button(this.loading ? '…' : (this.playing ? '暂停' : '播放')).fontSize(14).backgroundColor(this.palette.primary).fontColor(this.palette.onPrimary).enabled(!this.loading).onClick(() => this.toggle())
         Slider({ value: this.progress, min: 0, max: Math.max(1, this.duration) }).layoutWeight(1).selectedColor(this.palette.primary)
           .onChange((value: number, mode: SliderChangeMode) => { if (mode === SliderChangeMode.End && this.player !== null) { this.player.seek(value); } })
         Text(Math.floor(this.progress / 1000) + ' / ' + Math.floor(this.duration / 1000) + '秒').fontSize(12).fontColor(this.palette.muted)

@@ -12,8 +12,8 @@ export struct ChoiceChip {
   onAction: () => void = () => {};
 
   build() {
-    Button(this.selected ? '✓ ' + this.label : this.label).fontSize(13)
-      .fontColor(this.selected ? Color.White : this.palette.text)
+    Button(this.selected ? '✓ ' + this.label : this.label, { type: ButtonType.Normal }).fontSize(13).borderRadius(7)
+      .fontColor(this.selected ? this.palette.onPrimary : this.palette.text)
       .backgroundColor(this.selected ? this.palette.primary : this.palette.soft).height(36)
       .accessibilitySelected(this.selected).accessibilityChecked(this.selected)
       .id(this.controlId || 'choice-' + this.label).enabled(!this.disabled)

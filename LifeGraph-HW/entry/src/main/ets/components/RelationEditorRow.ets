@@ -17,6 +17,9 @@ export struct RelationEditorRow {
         Select(this.people.map((person: Person): SelectOption => ({ value: person.name + (person.deletedAt !== null ? '（已隐藏）' : '') })))
           .selected(this.people.findIndex((person: Person) => person.id === this.item.targetPersonId))
           .value(this.targetLabel())
+          .fontColor(this.palette.text).backgroundColor(this.palette.card)
+          .optionFontColor(this.palette.text).optionBgColor(this.palette.card)
+          .selectedOptionFontColor(this.palette.onPrimary).selectedOptionBgColor(this.palette.primary)
           .layoutWeight(1).id(this.item.rowId + '-target')
           .onSelect((selected: number) => {
             if (this.people[selected] !== undefined) { this.item.targetPersonId = this.people[selected].id; }
@@ -24,6 +27,9 @@ export struct RelationEditorRow {
         Select(this.relations.map((relation: NamedItem): SelectOption => ({ value: relation.name })))
           .selected(this.relations.findIndex((relation: NamedItem) => relation.id === this.item.relationId))
           .value(this.relations.find((relation: NamedItem) => relation.id === this.item.relationId)?.name ?? '请选择类型')
+          .fontColor(this.palette.text).backgroundColor(this.palette.card)
+          .optionFontColor(this.palette.text).optionBgColor(this.palette.card)
+          .selectedOptionFontColor(this.palette.onPrimary).selectedOptionBgColor(this.palette.primary)
           .id(this.item.rowId + '-kind')
           .onSelect((selected: number) => {
             if (this.relations[selected] !== undefined) { this.item.relationId = this.relations[selected].id; }

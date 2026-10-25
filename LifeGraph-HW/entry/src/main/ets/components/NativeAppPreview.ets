@@ -29,3 +29,15 @@ struct NativeEventsPreview {
 struct NativeHomePreview {
   build() { NativeApp({ forcePreview: true, previewData: fixture() }) }
 }
+
+@Preview({ title: '完整人物表单（只读）' })
+@Component
+struct NativePersonEditorPreview {
+  build() { NativeApp({ forcePreview: true, previewData: fixture(), previewRoute: 'personEditor' }) }
+}
+
+@Preview({ title: '完整事件表单（只读）' })
+@Component
+struct NativeEventEditorPreview {
+  build() { NativeApp({ forcePreview: true, previewData: fixture(), previewRoute: 'eventEditor' }) }
+}

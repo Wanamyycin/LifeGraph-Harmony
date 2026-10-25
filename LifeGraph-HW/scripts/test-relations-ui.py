@@ -61,14 +61,23 @@ def click(node):
 
 
 def click_text(text, kind='Button'):
-    click(find(layout(), text=text, kind=kind))
+    tree = layout()
+    # Older audit steps use the original navigation labels; resolve them to the
+    # current stable IDs when that main control is visible.
+    aliases = {'生活': 'tab-graph', '我的': 'nav-profile', '人物': 'tab-people',
+               '事件': 'tab-records', '＋ 记录': 'quick-add-event'}
+    if kind == 'Button' and text in aliases:
+        candidates = [n for n in nodes(tree) if n.get('id') == aliases[text] and bounds(n)[2] > bounds(n)[0]]
+        if len(candidates) == 1:
+            click(candidates[0]); return
+    click(find(tree, text=text, kind=kind))
 
 
 def scroll_bottom():
     tree = layout()
-    scrolls = [n for n in nodes(tree) if n.get('type') == 'Scroll' and n.get('bundleName', BUNDLE) == BUNDLE]
+    scrolls = [n for n in nodes(tree) if n.get('type') == 'Scroll' and n.get('bundleName', BUNDLE) == BUNDLE and bounds(n)[3] > bounds(n)[1]]
     assert scrolls, 'Expected person editor Scroll'
-    left, top, right, bottom = bounds(scrolls[0])
+    left, top, right, bottom = bounds(scrolls[-1])
     hdc('shell', 'uitest', 'uiInput', 'swipe', right - 20, bottom - 80, right - 20, top + 150, 1400)
     time.sleep(0.18)
 

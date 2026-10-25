@@ -8,6 +8,16 @@ const { AIAgent, executeTool, recentConversation } = require('../entry/src/main/
 const { AssistantController } = require('../entry/src/main/ets/features/AssistantController.ets');
 const { parseMarkdown, inlineMarkdown, safeMarkdownLink } = require('../entry/src/main/ets/features/Markdown.ets');
 const { AI_TOOLS_JSON } = require('../entry/src/main/ets/data/AiTools.ets');
+const { MainTab, assistantVisible } = require('../entry/src/main/ets/features/MainNavigation.ets');
+
+test('assistant visibility follows the main tab and the top destination, including editor overlays', () => {
+  assert.equal(assistantVisible(MainTab.Assistant, []), true);
+  assert.equal(assistantVisible(MainTab.Graph, []), false);
+  assert.equal(assistantVisible(MainTab.Assistant, ['eventEditor']), false);
+  assert.equal(assistantVisible(MainTab.Assistant, ['profile']), false);
+  assert.equal(assistantVisible(MainTab.Graph, ['profile', 'ai']), true);
+  assert.equal(assistantVisible(MainTab.Graph, ['ai', 'person']), false);
+});
 
 function fixture() {
   const data = new AppSnapshot(); data.profile.defaultPersonId = 'me';

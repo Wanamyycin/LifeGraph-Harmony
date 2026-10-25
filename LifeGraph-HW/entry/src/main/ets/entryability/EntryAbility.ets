@@ -3,10 +3,17 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { ApplicationRuntime } from '../runtime/ApplicationRuntime';
 import { AppServices } from '../application/AppServices';
+import { ColorModeController } from '../runtime/ColorModeController';
+import { Palette, ProfileConfig, paletteFor } from '../domain/Models';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
+  private colorMode: ColorModeController = new ColorModeController((appearance: string): void => {
+    const mode = appearance === 'dark' ? ConfigurationConstant.ColorMode.COLOR_MODE_DARK :
+      (appearance === 'light' ? ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT : ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+    this.context.getApplicationContext().setColorMode(mode);
+  });
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     ApplicationRuntime.start();
     AppStorage.setOrCreate('nativeSystemDark', this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
@@ -21,6 +28,11 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    ApplicationRuntime.onAppearance = (appearance: string): void => {
+      try { this.colorMode.setAppearance(appearance); }
+      catch (_) { hilog.warn(DOMAIN, 'LifeGraph', 'Native appearance update failed'); }
+    };
+    ApplicationRuntime.onAppearance('system');
     ApplicationRuntime.onColors = (background: string, text: string): void => {
       try {
         const mainWindow = windowStage.getMainWindowSync();
@@ -29,7 +41,8 @@ export default class EntryAbility extends UIAbility {
           statusBarContentColor: text, navigationBarContentColor: text }).catch(() => {});
       } catch (_) {}
     };
-    ApplicationRuntime.onColors('#F8F1E6', '#3D3329');
+    const initialColors: Palette = paletteFor(new ProfileConfig(), this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+    ApplicationRuntime.onColors(initialColors.paper, initialColors.text);
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
@@ -41,14 +54,10 @@ export default class EntryAbility extends UIAbility {
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
     });
 
-    try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
-    } catch (err) {
-      hilog.error(DOMAIN, 'testTag', 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
-    }
   }
 
   onWindowStageDestroy(): void {
+    ApplicationRuntime.onColors = null; ApplicationRuntime.onAppearance = null;
     // Main window is destroyed, release UI related resources
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }

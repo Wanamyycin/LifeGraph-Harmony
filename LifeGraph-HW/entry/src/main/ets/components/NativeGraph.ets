@@ -15,7 +15,7 @@ class GraphBridge {
 export struct NativeGraph {
   @Prop @Watch('dataChanged') payload: string = '';
   @Prop @Watch('themeChanged') theme: string = 'forest-light';
-  @Prop paperColor: string = '#F8F1E6';
+  @Prop paperColor: string = '#FCFDFB';
   @Prop palette: Palette = new Palette();
   onPerson: (id: string) => void = () => {};
   onEvent: (id: string) => void = () => {};

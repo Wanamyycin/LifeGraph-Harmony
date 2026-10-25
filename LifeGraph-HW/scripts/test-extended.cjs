@@ -6,9 +6,37 @@ const path = require('node:path');
 const { writeZip, readZip, copyZipEntry, ZipSource } = require('../entry/src/main/ets/data/StoredZip.ets');
 const { buildGraph } = require('../entry/src/main/ets/features/GraphData.ets');
 const { AIAgent, ChatReply, ToolCall, executeTool } = require('../entry/src/main/ets/features/AIAgent.ets');
-const { AppSnapshot, NamedItem, RelationEdge, EventCard, Palette } = require('../entry/src/main/ets/domain/Models.ets');
+const { AppSnapshot, NamedItem, RelationEdge, EventCard, Palette, ProfileConfig, paletteFor, graphThemeFor } = require('../entry/src/main/ets/domain/Models.ets');
 const { Person } = require('../entry/src/main/ets/domain/Person.ets');
 const { findEvents, formatBytes } = require('../entry/src/main/ets/features/EventQuery.ets');
+const { ColorModeController } = require('../entry/src/main/ets/runtime/ColorModeController.ets');
+
+test('graph and native palette agree for explicit light/dark and follow-system in every theme', () => {
+  for (const theme of ['forest', 'ocean', 'sunset', 'minimal']) for (const appearance of ['light', 'dark', 'system']) for (const systemDark of [false, true]) {
+    const profile = new ProfileConfig(); profile.themeKey = theme; profile.appearance = appearance;
+    const dark = appearance === 'dark' || (appearance === 'system' && systemDark);
+    assert.equal(graphThemeFor(profile, systemDark), theme + (dark ? '-dark' : '-light'));
+    const html = fs.readFileSync(path.join(__dirname, '../entry/src/main/resources/rawfile/graph', graphThemeFor(profile, systemDark) + '.html'), 'utf8');
+    assert.ok(html.includes('background: ' + paletteFor(profile, systemDark).paper));
+  }
+});
+
+test('native mode overrides return to follow-system without configuration callback loops and retry failures', () => {
+  const modes = []; const controller = new ColorModeController(mode => modes.push(mode));
+  for (const mode of ['system', 'system', 'dark', 'dark', 'system', 'light', 'light', 'system']) controller.setAppearance(mode);
+  assert.deepEqual(modes, ['system', 'dark', 'system', 'light', 'system']);
+  let calls = 0; const retry = new ColorModeController(() => { if (++calls === 1) throw new Error('platform failure'); });
+  assert.throws(() => retry.setAppearance('dark'), /platform failure/); retry.setAppearance('dark'); retry.setAppearance('dark'); assert.equal(calls, 2);
+});
+
+test('primary control text has readable contrast in every dark theme', () => {
+  function luminance(hex) { const channels = hex.slice(1).match(/../g).map(x => parseInt(x, 16) / 255).map(x => x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4); return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722; }
+  for (const theme of ['forest', 'ocean', 'sunset', 'minimal']) {
+    const profile = new ProfileConfig(); profile.themeKey = theme; profile.appearance = 'dark'; const colors = paletteFor(profile, false);
+    const pair = [luminance(colors.primary), luminance(colors.onPrimary)].sort((a, b) => b - a);
+    assert.ok((pair[0] + 0.05) / (pair[1] + 0.05) >= 4.5, theme);
+  }
+});
 
 class BufferFile {
   constructor(bytes = new Uint8Array()) { this.bytes = bytes; this.largestRead = 0; }

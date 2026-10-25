@@ -7,7 +7,7 @@ export struct ActionButton {
   @Prop isEnabled: boolean = true;
   onAction: () => void = () => {};
   build() {
-    Button(this.label).height(50).width('100%').fontSize(16).fontColor(Color.White)
+    Button(this.label, { type: ButtonType.Normal }).height(48).width('100%').fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.palette.onPrimary).borderRadius(10)
       .backgroundColor(this.palette.primary).enabled(this.isEnabled).onClick(() => this.onAction())
   }
 }

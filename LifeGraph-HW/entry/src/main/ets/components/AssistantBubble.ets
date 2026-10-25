@@ -53,6 +53,7 @@ export struct AssistantBubble {
         if (this.turn.readAt > 0) { Text('记录查询于 ' + new Date(this.turn.readAt).toLocaleString()).fontSize(11).fontColor(this.palette.muted).width('100%') }
         if (this.turn.contextNote.length > 0) { Text(this.turn.contextNote).fontSize(11).fontColor(this.palette.muted).width('100%') }
       }
-    }.alignItems(HorizontalAlign.Start).padding(16).width('100%').backgroundColor(this.turn.user ? this.palette.soft : this.palette.card).borderRadius(16)
+    }.alignItems(HorizontalAlign.Start).padding({ left: this.turn.user ? 14 : 0, right: this.turn.user ? 14 : 0, top: 12, bottom: 16 })
+      .width('100%').backgroundColor(this.turn.user ? this.palette.soft : Color.Transparent).borderRadius(this.turn.user ? 12 : 0)
   }
 }

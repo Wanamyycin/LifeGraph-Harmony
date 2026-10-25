@@ -3,7 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { Person } from '../domain/Person';
 import { AppSnapshot, EventCard, EventDraft, NamedItem, Palette, PersonDraft, ProfileConfig,
-  MediaAsset, RelationEdge, RelationInput, paletteFor } from '../domain/Models';
+  MediaAsset, RelationEdge, RelationInput, paletteFor, graphThemeFor } from '../domain/Models';
 import { LifeGraphService } from '../features/LifeGraphService';
 import { AppServices } from '../application/AppServices';
 import { ApplicationRuntime } from '../runtime/ApplicationRuntime';
@@ -27,6 +27,9 @@ import { RelationEditorRow } from './RelationEditorRow';
 import { ChoiceChip } from './ChoiceChip';
 import { ActionButton } from './ActionButton';
 import { PageHeading } from './PageHeading';
+import { MainTabButton } from './MainTabButton';
+import { FilterTab } from './FilterTab';
+import { MainTab, assistantVisible, mainTitle, editorDestination } from '../features/MainNavigation';
 import { NativeBackup } from '../data/NativeBackup';
 
 class RouteParam {
@@ -44,13 +47,15 @@ export struct NativeApp {
   @State data: AppSnapshot = new AppSnapshot();
   @State colors: Palette = new Palette();
   @State paths: NavPathStack = new NavPathStack();
-  @State tab: number = 0;
+  @State tab: MainTab = MainTab.Graph;
   @State ready: boolean = false;
   @State busy: boolean = false;
   @State preview: boolean = false;
   @State error: string = '';
   @State notice: string = '';
   @State search: string = '';
+  @State peopleSearch: string = '';
+  @State eventSearch: string = '';
   @State searchKind: number = 0;
   @State personId: string = '';
   @State personName: string = '';
@@ -120,7 +125,9 @@ export struct NativeApp {
     this.preview = ApplicationRuntime.useVisualPreview(this.forcePreview);
     if (this.preview) {
       this.data = this.previewData; this.themeChanged(); this.ready = true;
-      if (this.previewRoute.length > 0) { this.open(this.previewRoute); }
+      if (this.previewRoute === 'personEditor') { this.editPerson(); }
+      else if (this.previewRoute === 'eventEditor') { this.editEvent(); }
+      else if (this.previewRoute.length > 0) { this.open(this.previewRoute); }
       return;
     }
     this.initialize();
@@ -171,6 +178,7 @@ export struct NativeApp {
 
   private themeChanged(): void {
     this.colors = paletteFor(this.data.profile, this.systemDark);
+    if (!this.preview && ApplicationRuntime.onAppearance !== null) { ApplicationRuntime.onAppearance(this.data.profile.appearance); }
     if (ApplicationRuntime.onColors !== null) { ApplicationRuntime.onColors(this.colors.paper, this.colors.text); }
   }
 
@@ -205,8 +213,25 @@ export struct NativeApp {
     if (this.busy || !this.ready) { return; }
     if (this.recording) { this.error = '请先停止录音再离开'; return; }
     this.error = ''; this.notice = '';
-    if (name === 'people' || name === 'events' || name === 'search') { this.search = ''; }
+    // All assistant entry points use one list/scroller and one conversation view.
+    if (name === 'ai') { this.paths.clear(); this.selectTab(MainTab.Assistant); this.scrollChat(); return; }
+    if (name !== 'ai' && assistantVisible(this.tab, this.paths.getAllPathName())) { this.pauseAssistant(); }
+    if (name === 'people') { this.peopleSearch = ''; }
+    if (name === 'events') { this.eventSearch = ''; }
+    if (name === 'search') { this.search = ''; }
     this.paths.pushPathByName(name, new RouteParam(id));
+  }
+
+  private pauseAssistant(): void {
+    this.aiLinkGeneration++; clearTimeout(this.aiScrollTimer);
+    if (this.aiBusy) { this.assistant?.cancel(); }
+  }
+
+  private selectTab(tab: MainTab): void {
+    if (this.busy || !this.ready || this.recording || this.paths.size() > 0 || tab === this.tab) { return; }
+    if (this.tab === MainTab.Assistant) { this.pauseAssistant(); }
+    this.tab = tab; this.error = ''; this.notice = '';
+    if (tab === MainTab.Assistant) { this.scrollChat(); }
   }
 
   private goBack(): boolean {
@@ -217,14 +242,14 @@ export struct NativeApp {
     if (current === 'personEditor' || current === 'eventEditor' || current === 'profileEditor') {
       if (this.pendingMediaIds.length > 0) { this.cleanPendingMedia(); }
     }
-    if (current === 'ai') { this.aiLinkGeneration++; this.assistant?.cancel(); clearTimeout(this.aiScrollTimer); }
+    if (current === 'ai') { this.pauseAssistant(); }
     if (this.paths.size() > 0) { this.paths.pop(); this.error = ''; this.notice = ''; return true; }
-    if (this.tab !== 0) { this.tab = 0; return true; }
+    if (this.tab !== MainTab.Graph) { this.selectTab(MainTab.Graph); return true; }
     return false;
   }
 
-  private people(): Person[] {
-    const query = this.search.trim().toLocaleLowerCase();
+  private people(global: boolean = false): Person[] {
+    const query = (global ? this.search : this.peopleSearch).trim().toLocaleLowerCase();
     return this.data.persons.filter((person: Person) => person.deletedAt === null && person.id !== this.data.profile.defaultPersonId &&
       (person.name.toLocaleLowerCase().includes(query) || (person.description ?? '').toLocaleLowerCase().includes(query)));
   }
@@ -246,7 +271,7 @@ export struct NativeApp {
     return this.namedLabel(this.data.relations, edges.map((edge) => edge.relationId));
   }
   private events(global: boolean = false): EventCard[] {
-    return findEvents(this.data, this.search, global ? [] : this.filterBranchIds);
+    return findEvents(this.data, global ? this.search : this.eventSearch, global ? [] : this.filterBranchIds);
   }
 
   private eventRowKey(card: EventCard): string {
@@ -367,7 +392,7 @@ export struct NativeApp {
   }
 
   private graphTheme(): string {
-    return this.data.profile.themeKey + (this.colors.paper === '#201E1B' ? '-dark' : '-light');
+    return graphThemeFor(this.data.profile, this.systemDark);
   }
 
   private graphPerson(id: string): void {
@@ -545,8 +570,7 @@ export struct NativeApp {
   private scrollChat(): void {
     clearTimeout(this.aiScrollTimer);
     this.aiScrollTimer = setTimeout(() => {
-      const pages = this.paths.getAllPathName();
-      if (this.alive && pages[pages.length - 1] === 'ai') { try { this.aiScroller.scrollEdge(Edge.Bottom); } catch (_) {} }
+      if (this.alive && assistantVisible(this.tab, this.paths.getAllPathName())) { try { this.aiScroller.scrollEdge(Edge.Bottom); } catch (_) {} }
     }, 60);
   }
 
@@ -573,7 +597,7 @@ export struct NativeApp {
     const ref = refs.find((entry: AssistantReference) => referenceUrl(entry) === safe);
     if (ref === undefined) { this.error = '该引用未在查询结果中核对'; return; }
     await this.assistant?.cancel();
-    if (!this.alive || generation !== this.aiLinkGeneration) { return; }
+    if (!this.alive || generation !== this.aiLinkGeneration || !assistantVisible(this.tab, this.paths.getAllPathName())) { return; }
     if (ref.kind === 'event') {
       if (this.data.events.some((card: EventCard) => card.event.id === ref.id)) { this.open('event', ref.id); }
       else { this.error = '原事件已删除或已被恢复的备份替换'; }
@@ -655,7 +679,7 @@ export struct NativeApp {
     } else if (this.notice.length > 0) {
       Text(this.notice).fontSize(13).fontColor(this.colors.primary).width('100%')
     }
-    if (!this.ready && !this.busy) { Button('重新打开本地数据').onClick(() => this.initialize()).backgroundColor(this.colors.primary) }
+    if (!this.ready && !this.busy) { Button('重新打开本地数据').onClick(() => this.initialize()).backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary) }
   }
 
   @Builder
@@ -664,39 +688,42 @@ export struct NativeApp {
   @Builder
   empty(title: string, description: string) {
     Column({ space: 12 }) {
-      Text(title).fontSize(22).fontColor(this.colors.text)
+      Text(title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(this.colors.text)
       Text(description).fontSize(14).fontColor(this.colors.muted).textAlign(TextAlign.Center)
-    }.width('100%').padding({ top: 56, bottom: 40 })
+    }.width('100%').padding({ top: 36, bottom: 28 })
   }
 
   @Builder
   peopleList() {
     Column({ space: 16 }) {
-      Search({ value: this.search, placeholder: '搜索姓名或描述' }).backgroundColor(this.colors.card).fontColor(this.colors.text)
-        .onChange((value: string) => { this.search = value; })
-      Text('已记录 ' + this.people().length + ' 位人物').fontSize(13).fontColor(this.colors.muted).width('100%')
+      Search({ value: this.peopleSearch, placeholder: '搜索姓名或描述' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
+        .id('people-search').onChange((value: string) => { this.peopleSearch = value; })
+      Text((this.peopleSearch.trim().length > 0 ? '找到 ' : '共 ') + this.people().length + ' 位人物').fontSize(12).fontColor(this.colors.muted).width('100%')
       if (this.people().length === 0) {
-        this.empty('从一个名字开始', '记住那些让生活变得不同的人。')
+        this.empty(this.peopleSearch.trim().length > 0 ? '没有找到人物' : '还没有人物', this.peopleSearch.trim().length > 0 ? '试试其他姓名或描述。' : '添加姓名，也可以稍后补充关系。')
         ActionButton({ label: '新建人物', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.editPerson() })
       } else {
-        List({ space: 12 }) {
+        List({ space: 0 }) {
           ForEach(this.people(), (person: Person) => {
             ListItem() {
               Row({ space: 14 }) {
                 if (this.assetUri(person.avatarAssetId).length > 0) {
-                  Image(this.assetUri(person.avatarAssetId)).width(48).height(48).borderRadius(24).objectFit(ImageFit.Cover)
+                  Image(this.assetUri(person.avatarAssetId)).width(48).height(48).borderRadius(16).objectFit(ImageFit.Cover)
                 } else {
                   Text(person.name.slice(0, 1)).fontSize(23).fontColor(this.colors.primary).width(48).height(48)
-                  .textAlign(TextAlign.Center).backgroundColor(this.colors.soft).borderRadius(24)
+                  .textAlign(TextAlign.Center).backgroundColor(this.colors.soft).borderRadius(16)
                 }
                 Column({ space: 7 }) {
                   Text(person.name).fontSize(18).fontWeight(FontWeight.Medium).fontColor(this.colors.text).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(this.relationSummary(person.id) || person.description || '还没有写下关于这个人的故事').fontSize(13)
+                  Text(person.description || '暂无备注').fontSize(13)
                     .fontColor(this.colors.muted).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-                Text('›').fontSize(26).fontColor(this.colors.muted)
-              }.padding(16).width('100%').backgroundColor(this.colors.card).borderRadius(18)
-                .border({ width: 1, color: this.colors.border }).onClick(() => this.open('person', person.id))
+                Column({ space: 6 }) {
+                  Text(this.relationSummary(person.id) || '未标记关系').fontSize(11).fontColor(this.colors.muted).maxLines(1)
+                  Text(this.data.events.filter((card: EventCard) => card.personIds.includes(person.id)).length.toString() + ' 条记录').fontSize(11).fontColor(this.colors.muted)
+                }.alignItems(HorizontalAlign.End).constraintSize({ maxWidth: 90 })
+              }.padding({ top: 16, bottom: 16 }).width('100%')
+                .border({ width: { bottom: 1 }, color: this.colors.border }).onClick(() => this.open('person', person.id))
             }
           }, (person: Person) => person.id + ':' + person.updatedAt)
         }.layoutWeight(1).width('100%')
@@ -745,10 +772,10 @@ export struct NativeApp {
         if (this.assetUri(this.personAvatarId).length > 0) { Image(this.assetUri(this.personAvatarId)).width(80).height(80).borderRadius(40).objectFit(ImageFit.Cover) }
         Button('选择头像').backgroundColor(this.colors.soft).fontColor(this.colors.primary).onClick(() => this.pickMedia('image', 'person'))
         this.field('姓名 *')
-        TextInput({ text: this.personName, placeholder: '怎么称呼这个人？' }).fontColor(this.colors.text).backgroundColor(this.colors.card)
+        TextInput({ text: this.personName, placeholder: '怎么称呼这个人？' }).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .height(52).enabled(!this.busy).onChange((value: string) => { this.personName = value; })
         this.field('关于这个人')
-        TextArea({ text: this.personBio, placeholder: '你们如何相识？有什么想记住的事？' }).height(140).fontColor(this.colors.text)
+        TextArea({ text: this.personBio, placeholder: '你们如何相识？有什么想记住的事？' }).height(140).fontColor(this.colors.text).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .backgroundColor(this.colors.card).enabled(!this.busy).onChange((value: string) => { this.personBio = value; })
         this.field('与其他人的关系')
         Button('管理关系类型').fontSize(13).backgroundColor(this.colors.soft).fontColor(this.colors.primary).enabled(!this.busy).onClick(() => this.openTags('relations'))
@@ -766,32 +793,38 @@ export struct NativeApp {
 
   @Builder
   eventRow(card: EventCard) {
-    Column({ space: 10 }) {
-      Row({ space: 10 }) {
-        Text(formatDate(card.event.occurredAt)).fontSize(12).fontColor(this.colors.muted)
-        Blank()
-        Text(this.namedLabel(this.data.emotions, card.emotionIds)).fontSize(12).fontColor(this.colors.primary)
-      }
-      Text(card.event.title).fontSize(19).fontWeight(FontWeight.Medium).fontColor(this.colors.text).width('100%').maxLines(2)
-      if (card.event.content.length > 0) { Text(card.event.content).fontSize(14).fontColor(this.colors.muted).maxLines(3).width('100%').textOverflow({ overflow: TextOverflow.Ellipsis }) }
-      Text(card.personIds.map((id: string) => this.personLabel(id)).join('、')).fontSize(12).fontColor(this.colors.muted).width('100%').maxLines(2)
-      if (card.branchIds.length > 0) { Text(this.namedLabel(this.data.branches, card.branchIds)).fontSize(12).fontColor(this.colors.primary).width('100%').maxLines(2) }
-    }.padding(16).width('100%').backgroundColor(this.colors.card).borderRadius(18)
-      .border({ width: { left: 4 }, color: card.event.color }).onClick(() => this.open('event', card.event.id))
+    Row({ space: 14 }) {
+      Column({ space: 5 }) {
+        Text(formatDate(card.event.occurredAt).slice(8, 10)).fontSize(25).fontColor(this.colors.primary)
+        Text(formatDate(card.event.occurredAt).slice(0, 7).replace('-', '/')).fontSize(10).fontColor(this.colors.muted)
+      }.width(44).alignItems(HorizontalAlign.Start)
+      Column({ space: 8 }) {
+        Text(card.event.title).fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.colors.text).width('100%').maxLines(2)
+        if (card.event.content.length > 0) { Text(card.event.content).fontSize(14).lineHeight(22).fontColor(this.colors.muted).maxLines(2).width('100%').textOverflow({ overflow: TextOverflow.Ellipsis }) }
+        Text(card.personIds.map((id: string) => this.personLabel(id)).join('、')).fontSize(12).fontColor(this.colors.muted).width('100%').maxLines(2)
+        Row({ space: 7 }) {
+          Row() {}.width(6).height(6).backgroundColor(card.event.color).borderRadius(3)
+          Text(this.namedLabel(this.data.branches, card.branchIds)).fontSize(11).fontColor(this.colors.muted).layoutWeight(1).maxLines(1)
+          Text(this.namedLabel(this.data.emotions, card.emotionIds)).fontSize(11).fontColor(this.colors.primary).maxLines(1)
+        }.width('100%')
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+    }.alignItems(VerticalAlign.Top).padding({ top: 18, bottom: 18 }).width('100%')
+      .border({ width: { bottom: 1 }, color: this.colors.border }).onClick(() => this.open('event', card.event.id))
   }
 
   @Builder
   eventsList() {
     Column({ space: 14 }) {
-      Search({ value: this.search, placeholder: '搜索生活记录' }).backgroundColor(this.colors.card).fontColor(this.colors.text).onChange((value: string) => { this.search = value; })
+      Search({ value: this.eventSearch, placeholder: '搜索生活记录' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
+        .id('events-search').onChange((value: string) => { this.eventSearch = value; })
       Scroll() {
-        Row({ space: 8 }) {
-          ChoiceChip({ label: '全部', selected: this.filterBranchIds.length === 0, palette: this.colors, disabled: this.busy, onAction: () => { this.filterBranchIds = []; } })
-          ForEach(this.data.branches, (item: NamedItem) => { ChoiceChip({ label: item.name, selected: this.filterBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'event-filter-' + item.id, onAction: () => { this.filterBranchIds = toggled(this.filterBranchIds, item.id); } }) }, (item: NamedItem) => item.id)
+        Row({ space: 20 }) {
+          FilterTab({ label: '全部', selected: this.filterBranchIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'event-filter-all', onAction: () => { this.filterBranchIds = []; } })
+          ForEach(this.data.branches, (item: NamedItem) => { FilterTab({ label: item.name, selected: this.filterBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'event-filter-' + item.id, onAction: () => { this.filterBranchIds = toggled(this.filterBranchIds, item.id); } }) }, (item: NamedItem) => item.id)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
-      if (this.events().length === 0) { this.empty('每一天，都值得记住', '写下一件小事，连接生活中的人。') }
-      List({ space: 14 }) {
+      if (this.events().length === 0) { this.empty(this.eventSearch.trim().length > 0 || this.filterBranchIds.length > 0 ? '没有找到记录' : '还没有生活记录', '点底部的＋记一件事，或调整搜索与筛选。') }
+      List({ space: 0 }) {
         ForEach(this.events(), (card: EventCard) => { ListItem() { this.eventRow(card) } }, (card: EventCard) => this.eventRowKey(card))
       }.width('100%').layoutWeight(1)
     }.width('100%').layoutWeight(1)
@@ -802,17 +835,17 @@ export struct NativeApp {
     Scroll() {
       Column({ space: 17 }) {
         this.field('事件标题 *')
-        TextInput({ text: this.eventTitle, placeholder: '今天发生了什么？' }).height(50).fontColor(this.colors.text).backgroundColor(this.colors.card)
+        TextInput({ text: this.eventTitle, placeholder: '今天发生了什么？' }).height(50).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .id('event-title')
           .onChange((value: string) => { this.eventTitle = value; })
         this.field('生活记录')
-        TextArea({ text: this.eventContent, placeholder: '记下当时的心情与细节…' }).height(180).fontColor(this.colors.text).backgroundColor(this.colors.card)
+        TextArea({ text: this.eventContent, placeholder: '记下当时的心情与细节…' }).height(180).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .onChange((value: string) => { this.eventContent = value; })
         this.field('发生日期 *')
         Button(formatDate(this.eventDate) + '  ›').width('100%').backgroundColor(this.colors.card).fontColor(this.colors.text)
           .id('event-date').onClick(() => this.chooseDate())
         this.field('地点')
-        TextInput({ text: this.eventLocation, placeholder: '在哪里？（可选）' }).fontColor(this.colors.text).backgroundColor(this.colors.card)
+        TextInput({ text: this.eventLocation, placeholder: '在哪里？（可选）' }).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .onChange((value: string) => { this.eventLocation = value; })
         this.field('参与者 *')
         Flex({ wrap: FlexWrap.Wrap }) {
@@ -852,6 +885,7 @@ export struct NativeApp {
           Button('添加图片').fontSize(13).backgroundColor(this.colors.soft).fontColor(this.colors.primary).enabled(!this.recording).id('event-pick-image').onClick(() => this.pickMedia('image'))
           Button('导入音频').fontSize(13).backgroundColor(this.colors.soft).fontColor(this.colors.primary).enabled(!this.recording).id('event-pick-audio').onClick(() => this.pickMedia('audio'))
           Button(this.recording ? '停止 ' + this.recordingSeconds + '秒' : '录音').fontSize(13).backgroundColor(this.recording ? this.colors.danger : this.colors.primary)
+            .fontColor(this.recording ? this.colors.onDanger : this.colors.onPrimary)
             .onClick(() => { if (this.recording) { this.stopRecording(); } else { this.startRecording(); } })
         }
         ActionButton({ label: this.busy ? '正在保存…' : '保存事件', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.saveEvent() })
@@ -888,9 +922,9 @@ export struct NativeApp {
   tagsPage() {
     Column({ space: 14 }) {
       Row({ space: 8 }) {
-        TextInput({ text: this.tagName, placeholder: this.tagId.length > 0 ? '修改名称' : '新建分类名称' }).layoutWeight(1)
+        TextInput({ text: this.tagName, placeholder: this.tagId.length > 0 ? '修改名称' : '新建分类名称' }).layoutWeight(1).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .fontColor(this.colors.text).backgroundColor(this.colors.card).onChange((value: string) => { this.tagName = value; })
-        Button(this.tagId.length > 0 ? '保存' : '添加').backgroundColor(this.colors.primary).enabled(!this.busy).onClick(() => this.saveTag())
+        Button(this.tagId.length > 0 ? '保存' : '添加').backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).enabled(!this.busy).onClick(() => this.saveTag())
       }
       if (this.tagId.length > 0) { Button('取消重命名').onClick(() => { this.tagName = ''; this.tagId = ''; }).backgroundColor(this.colors.soft).fontColor(this.colors.text) }
       List({ space: 10 }) {
@@ -930,7 +964,7 @@ export struct NativeApp {
           .textAlign(TextAlign.Center).backgroundColor(this.colors.soft).borderRadius(56).onClick(() => this.editProfile())
         }
         Text(this.data.profile.displayName).fontSize(27).fontWeight(FontWeight.Bold).fontColor(this.colors.text)
-        Text(this.self()?.description || '把日子过成值得记住的故事。').fontSize(14).fontColor(this.colors.muted).textAlign(TextAlign.Center)
+        if ((this.self()?.description ?? '').length > 0) { Text(this.self()?.description ?? '').fontSize(14).fontColor(this.colors.muted).textAlign(TextAlign.Center) }
         Row({ space: 12 }) {
           Column({ space: 5 }) { Text((this.participants().length - 1).toString()).fontSize(30).fontColor(this.colors.primary); Text('人物').fontSize(13).fontColor(this.colors.muted) }
             .layoutWeight(1).padding(18).backgroundColor(this.colors.card).borderRadius(18).onClick(() => this.open('people'))
@@ -957,9 +991,9 @@ export struct NativeApp {
         if (this.assetUri(this.profileAvatarId).length > 0) { Image(this.assetUri(this.profileAvatarId)).width(90).height(90).borderRadius(45).objectFit(ImageFit.Cover) }
         Button('选择我的头像').backgroundColor(this.colors.soft).fontColor(this.colors.primary).onClick(() => this.pickMedia('image', 'profile'))
         this.field('你的称呼')
-        TextInput({ text: this.profileName }).maxLength(24).backgroundColor(this.colors.card).fontColor(this.colors.text).onChange((value: string) => { this.profileName = value; })
+        TextInput({ text: this.profileName }).maxLength(24).backgroundColor(this.colors.card).fontColor(this.colors.text).onChange((value: string) => { this.profileName = value; }).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
         this.field('个人见解')
-        TextArea({ text: this.profileBio, placeholder: '写一句关于自己的话…' }).maxLength(200).height(130).backgroundColor(this.colors.card).fontColor(this.colors.text).onChange((value: string) => { this.profileBio = value; })
+        TextArea({ text: this.profileBio, placeholder: '写一句关于自己的话…' }).maxLength(200).height(130).backgroundColor(this.colors.card).fontColor(this.colors.text).onChange((value: string) => { this.profileBio = value; }).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
         this.field('生日')
         Button(this.profileBirthday || '选择生日（可选）').fontColor(this.colors.text).backgroundColor(this.colors.card).onClick(() => {
           this.getUIContext().showDatePickerDialog({ selected: this.profileBirthday.length > 0 ? new Date(this.profileBirthday) : new Date(),
@@ -991,9 +1025,9 @@ export struct NativeApp {
       Text('外观保存在本机，重新打开后会恢复。').fontSize(13).fontColor(this.colors.muted)
       this.field('自定义事件颜色')
       Row({ space: 10 }) {
-        TextInput({ text: this.newColor, placeholder: '#5B8C5A' }).layoutWeight(1).backgroundColor(this.colors.card).fontColor(this.colors.text)
+        TextInput({ text: this.newColor, placeholder: '#5B8C5A' }).layoutWeight(1).backgroundColor(this.colors.card).fontColor(this.colors.text).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .onChange((value: string) => { this.newColor = value; })
-        Button('添加').backgroundColor(this.colors.primary).onClick(() => this.saveColors())
+        Button('添加').backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).onClick(() => this.saveColors())
       }
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.data.profile.customEventColors, (color: string) => {
@@ -1027,9 +1061,10 @@ export struct NativeApp {
         if (this.chatLines.length === 0) {
           ListItem() {
             Column({ space: 14 }) {
-              this.empty('找回记忆，也换个角度看关系', '可以描述模糊的线索，或问一段共同经历。关系分析只给建议。')
+              this.empty('查找或梳理你的记录', '输入人物、时间或记得的片段。关系分析只给建议。')
               ForEach(['总结我和某人的共同经历，分析我们的关系', '找一找那次不太愉快的聚餐', '最近三个月有哪些开心的事？'], (text: string) => {
-                Button(text).fontSize(13).fontColor(this.colors.primary).backgroundColor(this.colors.soft).width('100%')
+                Button(text, { type: ButtonType.Normal }).fontSize(13).fontColor(this.colors.primary).backgroundColor(Color.Transparent).width('100%').height(40)
+                  .borderRadius(0).border({ width: { bottom: 1 }, color: this.colors.border })
                   .onClick(() => { this.question = text; })
               })
               if (!this.aiConfigured) { Text('在服务设置中填写 URL、API Key 和模型名称后即可查询；使用说明可直接在本机阅读。').fontSize(12).fontColor(this.colors.muted) }
@@ -1046,13 +1081,15 @@ export struct NativeApp {
         if (this.aiBusy) { ListItem() { Text(this.aiStatus || '正在查询你的生活记录…').fontSize(14).fontColor(this.colors.muted).padding(12) } }
       }.width('100%').layoutWeight(1)
       Row({ space: 8 }) {
-        TextInput({ text: this.question, placeholder: '想了解自己的哪段生活？' }).layoutWeight(1).fontColor(this.colors.text).backgroundColor(this.colors.card)
+        TextInput({ text: this.question, placeholder: '想了解自己的哪段生活？' }).layoutWeight(1).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
           .id('ai-question').maxLength(6000)
           .enabled(!this.aiBusy && this.aiReady).onChange((value: string) => { this.question = value; }).onSubmit(() => this.askAI())
         if (this.aiBusy) {
           Button('停止').backgroundColor(this.colors.soft).fontColor(this.colors.text).id('ai-stop').onClick(() => this.assistant?.cancel())
         } else {
-          Button('发送').backgroundColor(this.colors.primary).enabled(this.aiReady && !this.busy && this.question.trim().length > 0)
+          Button('发送').backgroundColor(this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.primary : this.colors.soft)
+            .fontColor(this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.onPrimary : this.colors.muted)
+            .enabled(this.aiReady && !this.busy && this.question.trim().length > 0)
             .id('ai-send').onClick(() => this.askAI())
         }
       }
@@ -1065,7 +1102,7 @@ export struct NativeApp {
       Text('把生活记录带在自己手里').fontSize(23).fontWeight(FontWeight.Medium).fontColor(this.colors.text).width('100%')
       Text('备份包含人物、关系、事件、图片、语音、个人设置和聊天记录。').fontSize(15).fontColor(this.colors.muted).width('100%')
       Text('AI 服务配置和密钥不包含在备份中，换设备后需重新填写。').fontSize(12).fontColor(this.colors.muted).width('100%')
-      Text('当前人物 ' + this.people().length + ' 位 · 事件 ' + this.data.events.length + ' 条').fontSize(14).fontColor(this.colors.primary).width('100%')
+      Text('当前人物 ' + this.participants().filter((person: Person) => person.id !== this.data.profile.defaultPersonId).length + ' 位 · 事件 ' + this.data.events.length + ' 条').fontSize(14).fontColor(this.colors.primary).width('100%')
       Text(this.storageLabel).fontSize(13).fontColor(this.colors.muted).width('100%')
       ActionButton({ label: '导出备份', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.exportBackup() })
       Button('选择备份并恢复').width('100%').height(50).backgroundColor(this.colors.soft).fontColor(this.colors.text).enabled(!this.busy).onClick(() => this.chooseBackup())
@@ -1079,20 +1116,20 @@ export struct NativeApp {
   @Builder
   searchPage() {
     Column({ space: 14 }) {
-      Search({ value: this.search, placeholder: '搜索人物、生活记录' }).backgroundColor(this.colors.card).fontColor(this.colors.text)
+      Search({ value: this.search, placeholder: '搜索人物、生活记录' }).backgroundColor(this.colors.card).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
         .onChange((value: string) => { this.search = value; })
       Row({ space: 10 }) {
         ChoiceChip({ label: '人物', selected: this.searchKind === 0, palette: this.colors, disabled: this.busy, onAction: () => { this.searchKind = 0; } })
         ChoiceChip({ label: '事件', selected: this.searchKind === 1, palette: this.colors, disabled: this.busy, onAction: () => { this.searchKind = 1; } })
       }.width('100%')
-      if (this.search.trim().length === 0) { this.empty('想找回哪段生活？', '输入人物姓名、描述或事件内容。'); Blank() }
+      if (this.search.trim().length === 0) { this.empty('查找人物或记录', '输入人物姓名、描述或事件内容。'); Blank() }
       else {
         List({ space: 12 }) {
           if (this.searchKind === 0) {
-            ForEach(this.people(), (person: Person) => {
+            ForEach(this.people(true), (person: Person) => {
               ListItem() { this.menu(person.name, () => this.open('person', person.id)) }
             }, (person: Person) => person.id + ':' + person.updatedAt)
-            if (this.people().length === 0) { ListItem() { this.empty('没有找到人物', '试试其他关键词。') } }
+            if (this.people(true).length === 0) { ListItem() { this.empty('没有找到人物', '试试其他关键词。') } }
           } else {
             ForEach(this.events(true), (card: EventCard) => { ListItem() { this.eventRow(card) } }, (card: EventCard) => this.eventRowKey(card))
             if (this.events(true).length === 0) { ListItem() { this.empty('没有找到记录', '试试其他关键词。') } }
@@ -1104,32 +1141,29 @@ export struct NativeApp {
 
   @Builder
   homePage() {
-    Column({ space: 16 }) {
-      Row({ space: 10 }) {
-        ChoiceChip({ label: '人物', selected: false, palette: this.colors, disabled: this.busy, onAction: () => this.open('people') })
-        ChoiceChip({ label: '事件', selected: false, palette: this.colors, disabled: this.busy, onAction: () => { this.filterBranchIds = []; this.open('events'); } })
-        Blank()
-        Button('＋ 记录').fontSize(14).backgroundColor(this.colors.primary).onClick(() => this.editEvent())
-      }.width('100%')
+    Column({ space: 10 }) {
       Scroll() {
-        Row({ space: 8 }) {
-          ChoiceChip({ label: '全部关系', selected: this.graphRelationIds.length === 0, palette: this.colors, disabled: this.busy, onAction: () => { this.graphRelationIds = []; } })
+        Row({ space: 20 }) {
+          FilterTab({ label: '全部关系', selected: this.graphRelationIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'graph-relation-all', onAction: () => { this.graphRelationIds = []; } })
           ForEach(this.data.relations, (item: NamedItem) => {
-            ChoiceChip({ label: item.name, selected: this.graphRelationIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'graph-relation-' + item.id, onAction: () => { this.graphRelationIds = toggled(this.graphRelationIds, item.id); } })
+            FilterTab({ label: item.name, selected: this.graphRelationIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'graph-relation-' + item.id, onAction: () => { this.graphRelationIds = toggled(this.graphRelationIds, item.id); } })
           }, (item: NamedItem) => item.id)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
       if (this.preview) {
-        this.empty('生活图谱', '图谱交互需在模拟器或真机中查看。')
+        this.empty('关系图', '实际运行时显示可拖动的小球与连线。')
         Blank()
       } else {
         NativeGraph({ payload: this.graphPayload('home', this.data.profile.defaultPersonId), theme: this.graphTheme(), paperColor: this.colors.paper, palette: this.colors,
         onPerson: (id: string) => this.graphPerson(id), onEvent: (id: string) => this.open('event', id) })
         .layoutWeight(1)
       }
-      if (this.data.persons.length <= 1) {
-        Text('从“我”开始，记下一个人，连接你们的故事。').fontSize(13).fontColor(this.colors.muted).textAlign(TextAlign.Center)
-        ActionButton({ label: '记下一个人', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.editPerson() })
+      if (this.data.persons.filter((person: Person) => person.deletedAt === null && person.id !== this.data.profile.defaultPersonId).length === 0) {
+        Row({ space: 10 }) {
+          Text('添加人物和关系后，在这里查看联系。').fontSize(12).fontColor(this.colors.muted).layoutWeight(1)
+          Button('添加人物', { type: ButtonType.Normal }).fontSize(12).height(38).fontColor(this.colors.primary).backgroundColor(Color.Transparent)
+            .id('home-add-person').enabled(!this.busy).onClick(() => this.editPerson())
+        }.width('100%')
       }
     }.width('100%').layoutWeight(1)
   }
@@ -1164,55 +1198,75 @@ export struct NativeApp {
   @Builder
   destination(name: string, param: Object) {
     NavDestination() {
-      Column({ space: 16 }) {
-        PageHeading({ title: routeTitle(name, this.tagKind), palette: this.colors, showBack: true,
-          showAdd: name === 'people' || name === 'events', disabled: this.busy,
-          onBackAction: () => this.goBack(), onAddAction: () => { if (name === 'people') { this.editPerson(); } else { this.editEvent(); } } })
-        this.feedback()
-        if (name === 'people') { this.peopleList() }
-        else if (name === 'person') { this.personDetail((param as RouteParam).id) }
-        else if (name === 'personEditor') { this.personEditor() }
-        else if (name === 'events') { this.eventsList() }
-        else if (name === 'event') { this.eventDetail((param as RouteParam).id) }
-        else if (name === 'eventEditor') { this.eventEditor() }
-        else if (name === 'tags') { this.tagsPage() }
-        else if (name === 'profileEditor') { this.profileEditor() }
-        else if (name === 'appearance') { this.appearancePage() }
-        else if (name === 'search') { this.searchPage() }
-        else if (name === 'personGraph') { this.graphPage('person', (param as RouteParam).id) }
-        else if (name === 'branchGraph') { this.graphPage('branch', '') }
-        else if (name === 'image') {
-          Column() {
-            Image(this.fullscreenUri).width('100%').layoutWeight(1).objectFit(ImageFit.Contain)
-              .scale({ x: this.imageScale, y: this.imageScale })
-              .gesture(PinchGesture().onActionUpdate((event: GestureEvent) => {
-                this.imageScale = Math.min(5, Math.max(1, this.imageBaseScale * event.scale));
-              }).onActionEnd(() => { this.imageBaseScale = this.imageScale; }))
-            Text('双指缩放 · 点按恢复').fontSize(12).fontColor(this.colors.muted)
-          }.layoutWeight(1).width('100%').clip(true).onClick(() => { this.imageScale = 1; this.imageBaseScale = 1; })
-        }
-        else if (name === 'ai') { this.aiPage() }
-        else if (name === 'backup') { this.backupPage() }
-      }.width('100%').height('100%').padding({ top: 18, left: 20, right: 20, bottom: 12 }).backgroundColor(this.colors.paper)
-    }.hideTitleBar(true).onBackPressed(() => { this.goBack(); return true; })
+      Column() {
+        Column({ space: 16 }) {
+          PageHeading({ title: routeTitle(name, this.tagKind), palette: this.colors, showBack: true,
+            showAdd: name === 'people' || name === 'events', disabled: this.busy,
+            onBackAction: () => this.goBack(), onAddAction: () => { if (name === 'people') { this.editPerson(); } else { this.editEvent(); } } })
+          this.feedback()
+          if (name === 'people') { this.peopleList() }
+          else if (name === 'person') { this.personDetail((param as RouteParam).id) }
+          else if (name === 'personEditor') { this.personEditor() }
+          else if (name === 'events') { this.eventsList() }
+          else if (name === 'event') { this.eventDetail((param as RouteParam).id) }
+          else if (name === 'eventEditor') { this.eventEditor() }
+          else if (name === 'tags') { this.tagsPage() }
+          else if (name === 'profileEditor') { this.profileEditor() }
+          else if (name === 'appearance') { this.appearancePage() }
+          else if (name === 'search') { this.searchPage() }
+          else if (name === 'personGraph') { this.graphPage('person', (param as RouteParam).id) }
+          else if (name === 'branchGraph') { this.graphPage('branch', '') }
+          else if (name === 'image') {
+            Column() {
+              Image(this.fullscreenUri).width('100%').layoutWeight(1).objectFit(ImageFit.Contain)
+                .scale({ x: this.imageScale, y: this.imageScale })
+                .gesture(PinchGesture().onActionUpdate((event: GestureEvent) => {
+                  this.imageScale = Math.min(5, Math.max(1, this.imageBaseScale * event.scale));
+                }).onActionEnd(() => { this.imageBaseScale = this.imageScale; }))
+              Text('双指缩放 · 点按恢复').fontSize(12).fontColor(this.colors.muted)
+            }.layoutWeight(1).width('100%').clip(true).onClick(() => { this.imageScale = 1; this.imageBaseScale = 1; })
+          }
+          else if (name === 'ai') { this.aiPage() }
+          else if (name === 'backup') { this.backupPage() }
+          else if (name === 'profile') { this.profilePage() }
+        }.width('100%').height(editorDestination(name) ? '94%' : '100%')
+          .padding({ top: 18, left: 20, right: 20, bottom: 12 }).backgroundColor(this.colors.paper)
+          .borderRadius({ topLeft: editorDestination(name) ? 24 : 0, topRight: editorDestination(name) ? 24 : 0 })
+          .clip(true)
+      }.width('100%').height('100%').justifyContent(FlexAlign.End)
+    }.hideTitleBar(true).mode(editorDestination(name) ? NavDestinationMode.DIALOG : NavDestinationMode.STANDARD)
+      .backgroundColor(editorDestination(name) ? '#66131F18' : this.colors.paper)
+      .onBackPressed(() => { this.goBack(); return true; })
   }
 
   build() {
     Navigation(this.paths) {
-      Column({ space: 16 }) {
-        PageHeading({ title: this.tab === 0 ? 'Life Graph' : '我的', palette: this.colors, showSearch: this.tab === 0,
-          disabled: this.busy, onSearchAction: () => { this.open('search'); } })
+      Column({ space: 12 }) {
+        PageHeading({ title: mainTitle(this.tab), palette: this.colors, showSearch: this.tab !== MainTab.Assistant,
+          showAdd: this.tab === MainTab.People, showProfile: true, avatarUri: this.assetUri(this.self()?.avatarAssetId ?? null),
+          disabled: this.busy, onSearchAction: () => this.open('search'), onAddAction: () => this.editPerson(), onProfileAction: () => this.open('profile') })
         this.feedback()
         if (this.busy && !this.ready) { LoadingProgress().width(40).height(40).color(this.colors.primary); Blank() }
         else if (this.ready) {
-          if (this.tab === 0) { this.homePage() } else { this.profilePage() }
+          if (this.tab === MainTab.Graph) { this.homePage() }
+          else if (this.tab === MainTab.Records) { this.eventsList() }
+          else if (this.tab === MainTab.People) { this.peopleList() }
+          else { this.aiPage() }
         } else { Blank() }
-        Row() {
-          Button('生活').layoutWeight(1).fontColor(this.tab === 0 ? this.colors.primary : this.colors.muted).backgroundColor(Color.Transparent).onClick(() => { this.tab = 0; this.notice = ''; })
-          Button('＋').fontSize(28).width(54).height(54).backgroundColor(this.colors.primary).fontColor(Color.White).enabled(this.ready && !this.busy).onClick(() => this.editEvent())
-          Button('我的').layoutWeight(1).fontColor(this.tab === 1 ? this.colors.primary : this.colors.muted).backgroundColor(Color.Transparent).onClick(() => { this.tab = 1; this.search = ''; this.notice = ''; })
-        }.width('100%').padding({ top: 10, bottom: 4 }).border({ width: { top: 1 }, color: this.colors.border })
-      }.width('100%').height('100%').padding({ top: 20, left: 20, right: 20, bottom: 8 }).backgroundColor(this.colors.paper)
+        Row({ space: 3 }) {
+          MainTabButton({ label: '图谱', icon: $r('app.media.nav_graph'), selected: this.tab === MainTab.Graph, palette: this.colors,
+            disabled: !this.ready || this.busy, controlId: 'tab-graph', onAction: () => this.selectTab(MainTab.Graph) }).layoutWeight(1)
+          MainTabButton({ label: '记录', icon: $r('app.media.nav_records'), selected: this.tab === MainTab.Records, palette: this.colors,
+            disabled: !this.ready || this.busy, controlId: 'tab-records', onAction: () => this.selectTab(MainTab.Records) }).layoutWeight(1)
+          Button('＋', { type: ButtonType.Normal }).fontSize(28).width(50).height(50).padding(0).borderRadius(12)
+            .backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).margin({ left: 6, right: 6 })
+            .id('quick-add-event').accessibilityText('新建事件').enabled(this.ready && !this.busy).onClick(() => this.editEvent())
+          MainTabButton({ label: '人物', icon: $r('app.media.nav_people'), selected: this.tab === MainTab.People, palette: this.colors,
+            disabled: !this.ready || this.busy, controlId: 'tab-people', onAction: () => this.selectTab(MainTab.People) }).layoutWeight(1)
+          MainTabButton({ label: '助手', icon: $r('app.media.nav_assistant'), selected: this.tab === MainTab.Assistant, palette: this.colors,
+            disabled: !this.ready || this.busy, controlId: 'tab-assistant', onAction: () => this.selectTab(MainTab.Assistant) }).layoutWeight(1)
+        }.width('100%').padding({ top: 6, bottom: 2 }).border({ width: { top: 1 }, color: this.colors.border })
+      }.width('100%').height('100%').padding({ top: 16, left: 20, right: 20, bottom: 8 }).backgroundColor(this.colors.paper)
     }.hideTitleBar(true).navDestination(this.destination).mode(NavigationMode.Stack).width('100%').height('100%')
   }
 }
@@ -1244,6 +1298,7 @@ function routeTitle(name: string, kind: string): string {
   if (name === 'image') { return '图片'; }
   if (name === 'ai') { return 'AI 生活助手'; }
   if (name === 'backup') { return '本地备份与恢复'; }
+  if (name === 'profile') { return '我的'; }
   if (name === 'tags') { return kind === 'relations' ? '关系类型' : (kind === 'branches' ? '生活分支' : '情绪标签'); }
   return 'Life Graph';
 }

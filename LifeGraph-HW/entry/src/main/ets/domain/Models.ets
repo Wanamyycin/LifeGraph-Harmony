@@ -90,26 +90,39 @@ export class EventDraft {
 }
 
 export class Palette {
-  paper: string = '#F8F1E6';
-  card: string = '#FAF5EB';
-  text: string = '#3D3329';
-  muted: string = '#6B5E4F';
-  primary: string = '#5B8C5A';
-  soft: string = '#EEE5D7';
-  border: string = '#D4C4A8';
+  paper: string = '#FCFDFB';
+  card: string = '#F2F5F0';
+  text: string = '#243B32';
+  muted: string = '#69776F';
+  primary: string = '#39634E';
+  onPrimary: string = '#FFFFFF';
+  soft: string = '#E8EFE7';
+  border: string = '#E1E7DF';
   danger: string = '#A66355';
+  onDanger: string = '#FFFFFF';
+}
+
+export function darkAppearance(profile: ProfileConfig, systemDark: boolean): boolean {
+  return profile.appearance === 'dark' || (profile.appearance === 'system' && systemDark);
 }
 
 export function paletteFor(profile: ProfileConfig, systemDark: boolean): Palette {
-  const dark = profile.appearance === 'dark' || (profile.appearance === 'system' && systemDark);
+  const dark = darkAppearance(profile, systemDark);
   const p = new Palette();
   if (profile.themeKey === 'ocean') { p.primary = dark ? '#7AAED8' : '#3C7BB9'; }
   if (profile.themeKey === 'sunset') { p.primary = dark ? '#EBAA98' : '#E07A5F'; }
+  if (profile.themeKey === 'sunset') { p.onPrimary = '#15261C'; }
   if (profile.themeKey === 'minimal') { p.primary = dark ? '#CCCCCC' : '#2A2A2A'; }
   if (dark) {
-    p.paper = '#201E1B'; p.card = '#2B2823'; p.text = '#F2E9DC';
-    p.muted = '#BDB1A0'; p.soft = '#39332C'; p.border = '#544A3D'; p.danger = '#E6A08D';
-    if (profile.themeKey === 'forest') { p.primary = '#81B29A'; }
+    p.paper = '#222D27'; p.card = '#2D3930'; p.text = '#E6ECE2';
+    p.muted = '#A4B1A5'; p.soft = '#344839'; p.border = '#3A473D'; p.danger = '#E6A08D';
+    if (profile.themeKey === 'forest') { p.primary = '#A6C3A1'; }
+    p.onPrimary = '#15261C';
+    p.onDanger = '#15261C';
   }
   return p;
+}
+
+export function graphThemeFor(profile: ProfileConfig, systemDark: boolean): string {
+  return profile.themeKey + (darkAppearance(profile, systemDark) ? '-dark' : '-light');
 }

@@ -5,6 +5,7 @@ export class ApplicationRuntime {
   private static foreground: boolean = false;
   static onBackground: (() => void) | null = null;
   static onColors: ((background: string, text: string) => void) | null = null;
+  static onAppearance: ((appearance: string) => void) | null = null;
   private static backgroundListeners: Map<number, () => void> = new Map<number, () => void>();
   private static nextListener: number = 0;
 
@@ -32,6 +33,7 @@ export class ApplicationRuntime {
     ApplicationRuntime.started = false;
     ApplicationRuntime.foreground = false;
     ApplicationRuntime.backgroundListeners.clear();
+    ApplicationRuntime.onAppearance = null;
   }
 
   static useVisualPreview(explicitPreview: boolean): boolean {
