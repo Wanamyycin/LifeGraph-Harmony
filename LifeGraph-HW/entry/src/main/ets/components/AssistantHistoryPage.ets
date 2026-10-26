@@ -1,5 +1,6 @@
 import { AssistantChat, assistantChatGroup } from '../domain/AssistantHistory';
 import { Palette } from '../domain/Models';
+import { PageList } from './PageScroll';
 
 @Component
 export struct AssistantHistoryPage {
@@ -68,7 +69,7 @@ export struct AssistantHistoryPage {
         Text('没有找到匹配的聊天').fontSize(16).fontColor(this.palette.muted).padding({ top: 40 })
         Blank()
       } else {
-        List({ space: 8 }) {
+        PageList({ space: 8, tint: this.palette.muted }) {
           if (this.searching) { ListItem() { Text('正在搜索…').fontSize(12).fontColor(this.palette.muted) } }
           ForEach(['今天', '昨天', '更早'], (group: string) => {
             if (this.groupChats(group).length > 0) {
@@ -95,7 +96,7 @@ export struct AssistantHistoryPage {
               }, (chat: AssistantChat) => chat.id)
             }
           }, (group: string) => group)
-        }.width('100%').layoutWeight(1)
+        }
       }
     }.width('100%').layoutWeight(1).enabled(!this.disabled)
   }

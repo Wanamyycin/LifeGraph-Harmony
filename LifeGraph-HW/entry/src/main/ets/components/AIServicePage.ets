@@ -2,6 +2,7 @@ import { Palette } from '../domain/Models';
 import { OpenAIConfig, prepareOpenAIConfig } from '../domain/OpenAIConfig';
 import { NativeChatTransport } from '../data/NativeChatTransport';
 import { ChatMessage } from '../features/AIAgent';
+import { PageScroll } from './PageScroll';
 
 @Component
 export struct AIServicePage {
@@ -47,7 +48,7 @@ export struct AIServicePage {
 
   build() {
     Column({ space: 16 }) {
-      Scroll() {
+      PageScroll({ tint: this.palette.muted }) {
         Column({ space: 16 }) {
           Text('连接你信任的 AI 服务').fontSize(22).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
           Text(this.connected ? '连接成功' : this.previous === null ? '未连接' : '已配置').fontSize(13)
@@ -85,7 +86,7 @@ export struct AIServicePage {
           }
           if (this.error.length > 0) { Text(this.error).fontSize(13).fontColor(this.palette.danger).width('100%') }
         }.width('100%').alignItems(HorizontalAlign.Start).padding({ bottom: 16 })
-      }.width('100%').layoutWeight(1)
+      }
       Column({ space: 5 }) {
         Text(this.remember ? '密钥保存在本机' : '密钥仅在本次运行中使用').fontSize(13).fontColor(this.palette.text).width('100%')
         Text('提问和相关记录会发送至该服务。').fontSize(12).fontColor(this.palette.muted).width('100%')

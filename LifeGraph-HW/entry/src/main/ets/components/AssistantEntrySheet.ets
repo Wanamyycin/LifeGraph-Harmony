@@ -2,6 +2,7 @@ import { Person } from '../domain/Person';
 import { Palette } from '../domain/Models';
 import { AssistantEntryRequest, assistantDate, assistantEntryRequest, assistantRangeEnd, assistantRangeStart } from '../features/AssistantEntry';
 import { ChoiceChip } from './ChoiceChip';
+import { PageList } from './PageScroll';
 
 @Component
 export struct AssistantEntrySheet {
@@ -72,7 +73,8 @@ export struct AssistantEntrySheet {
       if (this.candidates().length === 0) {
         Text(this.personSearch.trim().length > 0 ? '没有找到匹配的人物' : '还没有可选择的人物，可先到人物页添加。').fontSize(14).fontColor(this.palette.muted).padding({ top: 12, bottom: 12 })
       } else {
-        List() {
+        PageList({ tint: this.palette.muted, barOutset: 12, viewportHeight: Math.min(this.candidates().length, 3) * 58,
+          divider: { strokeWidth: 1, color: this.palette.border } }) {
           ForEach(this.candidates(), (person: Person) => {
             ListItem() {
               Row({ space: 12 }) {
@@ -91,7 +93,7 @@ export struct AssistantEntrySheet {
                 .onClick(() => { this.personId = person.id; if (this.kind === 'memory') { this.choosingPerson = false; } })
             }
           }, (person: Person) => person.id)
-        }.width('100%').height(Math.min(this.candidates().length, 3) * 58).divider({ strokeWidth: 1, color: this.palette.border })
+        }
       }
     }.width('100%')
   }

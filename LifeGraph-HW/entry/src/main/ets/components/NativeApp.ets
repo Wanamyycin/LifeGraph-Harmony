@@ -37,6 +37,7 @@ import { FilterTab } from './FilterTab';
 import { TimelineGroupSection } from './TimelineGroupSection';
 import { MainTab, assistantVisible, mainTitle, editorDestination } from '../features/MainNavigation';
 import { NativeBackup } from '../data/NativeBackup';
+import { PageList, PageScroll } from './PageScroll';
 
 class RouteParam {
   id: string = '';
@@ -305,7 +306,7 @@ export struct NativeApp {
   }
 
   private timelinePersonOptions(): SelectOption[] {
-    return [{ value: '我的全部经历' }, ...this.timelinePeople().map((person: Person): SelectOption => ({ value: '与' + person.name + '的共同经历' }))];
+    return [{ value: '全部' }, ...this.timelinePeople().map((person: Person): SelectOption => ({ value: '与' + person.name}))];
   }
 
   private timelinePersonIndex(): number {
@@ -315,9 +316,9 @@ export struct NativeApp {
   }
 
   private timelinePersonLabel(): string {
-    if (this.timelinePersonId.length === 0) { return '我的全部'; }
+    if (this.timelinePersonId.length === 0) { return '全部'; }
     const person = this.person(this.timelinePersonId);
-    return person === undefined ? '我的全部' : '与' + person.name;
+    return person === undefined ? '全部' : '与' + person.name;
   }
 
   private timelineCards(ascending: boolean = this.timelineAscending): EventCard[] {
@@ -327,10 +328,6 @@ export struct NativeApp {
 
   private timelineGroups(): TimelineEventGroup[] {
     return groupTimelineEvents(this.timelineCards(), this.timelineGrain as TimelineGrain);
-  }
-
-  private timelineScaleLabel(): string {
-    return '按月展开';
   }
 
   private setTimelinePerson(selected: number): void {
@@ -860,7 +857,7 @@ export struct NativeApp {
         this.empty(this.peopleSearch.trim().length > 0 ? '没有找到人物' : '还没有人物', this.peopleSearch.trim().length > 0 ? '试试其他姓名或描述。' : '添加姓名，也可以稍后补充关系。')
         ActionButton({ label: '新建人物', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.editPerson() })
       } else {
-        List({ space: 0 }) {
+        PageList({ tint: this.colors.muted }) {
           ForEach(this.people(), (person: Person) => {
             ListItem() {
               Row({ space: 14 }) {
@@ -883,14 +880,14 @@ export struct NativeApp {
                 .border({ width: { bottom: 1 }, color: this.colors.border }).onClick(() => this.open('person', person.id))
             }
           }, (person: Person) => person.id + ':' + person.updatedAt)
-        }.layoutWeight(1).width('100%')
+        }
       }
     }.width('100%').layoutWeight(1)
   }
 
   @Builder
   personDetail(id: string) {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 20 }) {
         if (this.assetUri(this.person(id)?.avatarAssetId ?? null).length > 0) {
           Image(this.assetUri(this.person(id)?.avatarAssetId ?? null)).width(100).height(100).borderRadius(50).objectFit(ImageFit.Cover)
@@ -919,12 +916,12 @@ export struct NativeApp {
           Button('删除人物').backgroundColor(Color.Transparent).fontColor(this.colors.danger).onClick(() => this.confirmDeletePerson(id))
         }
       }.width('100%').padding({ bottom: 24 })
-    }.width('100%').layoutWeight(1)
+    }
   }
 
   @Builder
   personEditor() {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 16 }) {
         if (this.assetUri(this.personAvatarId).length > 0) { Image(this.assetUri(this.personAvatarId)).width(80).height(80).borderRadius(40).objectFit(ImageFit.Cover) }
         Button('选择头像').backgroundColor(this.colors.soft).fontColor(this.colors.primary).onClick(() => this.pickMedia('image', 'person'))
@@ -945,7 +942,7 @@ export struct NativeApp {
         ActionButton({ label: this.busy ? '正在保存…' : '保存人物', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.savePerson() })
         Button('取消').width('100%').backgroundColor(this.colors.soft).fontColor(this.colors.text).enabled(!this.busy).onClick(() => this.goBack())
       }.width('100%').padding({ bottom: 28 }).enabled(!this.busy)
-    }.width('100%').layoutWeight(1)
+    }
   }
 
   @Builder
@@ -984,15 +981,15 @@ export struct NativeApp {
           this.resetTimelineFolds();
         })
       Row({ space: 8 }) {
-        Text('按月展开').fontSize(12).fontColor(this.colors.primary).layoutWeight(1)
-          .padding({ left: 12, right: 12, top: 9, bottom: 9 }).backgroundColor(this.colors.soft).borderRadius(10)
+        Blank()
         Select(this.timelinePersonOptions()).selected(this.timelinePersonIndex()).value(this.timelinePersonLabel())
           .fontColor(this.colors.text).backgroundColor(this.colors.card)
+          .optionHeight(320)
           .optionFontColor(this.colors.text).optionBgColor(this.colors.card)
           .selectedOptionFontColor(this.colors.onPrimary).selectedOptionBgColor(this.colors.primary)
           .constraintSize({ minWidth: 112, maxWidth: 150 }).id('timeline-person')
           .onSelect((selected: number) => this.setTimelinePerson(selected))
-        Button(this.timelineAscending ? '↑' : '↓', { type: ButtonType.Normal }).width(38).height(38).padding(0).fontSize(20)
+        Button('⇅', { type: ButtonType.Normal }).width(38).height(38).padding(0).fontSize(20)
           .fontColor(this.colors.primary).backgroundColor(this.colors.soft).borderRadius(10)
           .accessibilityText(this.timelineAscending ? '当前最早在上，点按改为最近在上' : '当前最近在上，点按改为最早在上')
           .id('timeline-order').onClick(() => this.toggleTimelineOrder())
@@ -1004,11 +1001,10 @@ export struct NativeApp {
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
       Row() {
-        Text((this.timelinePersonId.length > 0 ? this.timelinePersonLabel() + ' · ' : '') + this.timelineScaleLabel())
-          .fontSize(12).fontWeight(FontWeight.Medium).fontColor(this.colors.text).layoutWeight(1)
         Text((this.timelineAscending ? '最早在上' : '最近在上') + ' · ' + this.timelineCards().length + ' 件事')
           .fontSize(11).fontColor(this.colors.muted)
       }.width('100%')
+      .justifyContent(FlexAlign.End)
       if (this.timelineCards().length === 0) {
         if (this.eventSearch.trim().length > 0 || this.filterBranchIds.length > 0 || this.timelinePersonId.length > 0) {
           this.empty('没有找到记录', '试试其他关键词、人物或生活分支。')
@@ -1018,7 +1014,7 @@ export struct NativeApp {
           this.empty('从一件小事开始', '点底部的＋记一件事，时间会慢慢长成自己的枝干。')
         }
       } else {
-        List({ space: 6 }) {
+        PageList({ space: 6, tint: this.colors.muted }) {
           ForEach(this.timelineGroups(), (group: TimelineEventGroup) => {
             ListItem() {
               TimelineGroupSection({ group: group, palette: this.colors, people: this.data.persons, branches: this.data.branches,
@@ -1028,14 +1024,14 @@ export struct NativeApp {
                 onOpenEvent: (id: string) => this.open('event', id) })
             }
           }, (group: TimelineEventGroup) => group.key + ':' + group.events.map((card: EventCard) => this.eventRowKey(card)).join(','))
-        }.width('100%').layoutWeight(1).edgeEffect(EdgeEffect.Spring)
+        }
       }
     }.width('100%').layoutWeight(1)
   }
 
   @Builder
   eventEditor() {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 17 }) {
         this.field('事件标题 *')
         TextInput({ text: this.eventTitle, placeholder: '今天发生了什么？' }).height(50).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
@@ -1094,12 +1090,12 @@ export struct NativeApp {
         ActionButton({ label: this.busy ? '正在保存…' : '保存事件', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.saveEvent() })
         Button('取消').backgroundColor(this.colors.soft).fontColor(this.colors.text).enabled(!this.busy).onClick(() => this.goBack())
       }.width('100%').padding({ bottom: 32 }).enabled(!this.busy)
-    }.width('100%').layoutWeight(1)
+    }
   }
 
   @Builder
   eventDetail(id: string) {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 18 }) {
         ForEach(this.data.events.filter((card: EventCard) => card.event.id === id), (card: EventCard) => {
           Text(card.event.title).fontSize(27).fontWeight(FontWeight.Bold).fontColor(this.colors.text).width('100%')
@@ -1118,7 +1114,7 @@ export struct NativeApp {
           Button('删除事件').backgroundColor(Color.Transparent).fontColor(this.colors.danger).onClick(() => this.confirmDeleteEvent(id))
         })
       }.width('100%').padding({ bottom: 28 }).enabled(!this.busy)
-    }.width('100%').layoutWeight(1)
+    }
   }
 
   @Builder
@@ -1130,7 +1126,7 @@ export struct NativeApp {
         Button(this.tagId.length > 0 ? '保存' : '添加').backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).enabled(!this.busy).onClick(() => this.saveTag())
       }
       if (this.tagId.length > 0) { Button('取消重命名').onClick(() => { this.tagName = ''; this.tagId = ''; }).backgroundColor(this.colors.soft).fontColor(this.colors.text) }
-      List({ space: 10 }) {
+      PageList({ space: 10, tint: this.colors.muted }) {
         ForEach(this.tags(), (item: NamedItem) => {
           ListItem() {
             Row({ space: 12 }) {
@@ -1144,7 +1140,7 @@ export struct NativeApp {
             }.padding(14).backgroundColor(this.colors.card).borderRadius(14).width('100%')
           }
         }, (item: NamedItem) => item.id + ':' + item.name)
-      }.layoutWeight(1).width('100%')
+      }
     }.layoutWeight(1).width('100%').enabled(!this.busy)
   }
 
@@ -1158,7 +1154,7 @@ export struct NativeApp {
 
   @Builder
   profilePage() {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 18 }) {
         if (this.assetUri(this.self()?.avatarAssetId ?? null).length > 0) {
           Image(this.assetUri(this.self()?.avatarAssetId ?? null)).width(112).height(112).borderRadius(56).objectFit(ImageFit.Cover).onClick(() => this.editProfile())
@@ -1184,12 +1180,12 @@ export struct NativeApp {
         this.menu('本地备份与恢复', () => { this.backupMessage = ''; this.open('backup'); this.updateStorage(); })
         Text('本机记录 · 无需登录').fontSize(12).fontColor(this.colors.muted).padding(12)
       }.width('100%').padding({ bottom: 24, top: 8 }).enabled(!this.busy)
-    }.width('100%').layoutWeight(1)
+    }
   }
 
   @Builder
   profileEditor() {
-    Scroll() {
+    PageScroll({ tint: this.colors.muted }) {
       Column({ space: 18 }) {
         if (this.assetUri(this.profileAvatarId).length > 0) { Image(this.assetUri(this.profileAvatarId)).width(90).height(90).borderRadius(45).objectFit(ImageFit.Cover) }
         Button('选择我的头像').backgroundColor(this.colors.soft).fontColor(this.colors.primary).onClick(() => this.pickMedia('image', 'profile'))
@@ -1206,7 +1202,7 @@ export struct NativeApp {
         Button('清除生日').fontSize(13).backgroundColor(Color.Transparent).fontColor(this.colors.muted).onClick(() => { this.profileBirthday = ''; })
         ActionButton({ label: '保存资料', palette: this.colors, isEnabled: !this.busy && this.ready, onAction: () => this.saveProfile() })
       }.width('100%').padding({ bottom: 28 }).enabled(!this.busy)
-    }.layoutWeight(1).width('100%')
+    }
   }
 
   @Builder
@@ -1286,7 +1282,7 @@ export struct NativeApp {
           .enabled(!this.aiBusy && !this.busy).id('ai-connect-service').onClick(() => this.openAISettings())
       }
       if (this.aiError.length > 0) { Text(this.aiError).fontSize(13).fontColor(this.colors.danger).width('100%').copyOption(CopyOptions.LocalDevice) }
-      List({ space: 14, scroller: this.aiScroller }) {
+      PageList({ space: 14, scroller: this.aiScroller, tint: this.colors.muted }) {
         if (this.chatLines.length > this.aiVisibleCount) {
           ListItem() {
             Button('查看更早的聊天（还有' + (this.chatLines.length - this.aiVisibleCount).toString() + '条）').fontSize(13)
@@ -1314,7 +1310,7 @@ export struct NativeApp {
           }
         }, (line: AssistantTurn) => line.id + ':' + line.status)
         if (this.aiBusy) { ListItem() { Text(this.aiStatus || '正在查询你的生活记录…').fontSize(14).fontColor(this.colors.muted).padding(12) } }
-      }.width('100%').layoutWeight(1)
+      }
       Column({ space: 2 }) {
         Row() {
           Button('AI 服务', { type: ButtonType.Normal }).fontSize(12).height(24).padding({ left: 2, right: 12, top: 0, bottom: 0 })
@@ -1380,7 +1376,7 @@ export struct NativeApp {
       }.width('100%')
       if (this.search.trim().length === 0) { this.empty('查找人物或记录', '输入人物姓名、描述或事件内容。'); Blank() }
       else {
-        List({ space: 12 }) {
+        PageList({ space: 12, tint: this.colors.muted }) {
           if (this.searchKind === 0) {
             ForEach(this.people(true), (person: Person) => {
               ListItem() { this.menu(person.name, () => this.open('person', person.id)) }
@@ -1390,7 +1386,7 @@ export struct NativeApp {
             ForEach(this.events(true), (card: EventCard) => { ListItem() { this.eventRow(card) } }, (card: EventCard) => this.eventRowKey(card))
             if (this.events(true).length === 0) { ListItem() { this.empty('没有找到记录', '试试其他关键词。') } }
           }
-        }.layoutWeight(1).width('100%')
+        }
       }
     }.layoutWeight(1).width('100%')
   }
