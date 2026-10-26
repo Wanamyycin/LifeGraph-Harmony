@@ -91,6 +91,7 @@ export struct NativeApp {
   @State profileBirthday: string = '';
   @State graphRelationIds: string[] = [];
   @State graphBranchIds: string[] = [];
+  @State homeBranchGraph: boolean = false;
   @State graphImages: Map<string, string> = new Map<string, string>();
   @State personAvatarId: string | null = null;
   @State profileAvatarId: string | null = null;
@@ -1399,21 +1400,39 @@ export struct NativeApp {
     Column({ space: 10 }) {
       Scroll() {
         Row({ space: 20 }) {
-          FilterTab({ label: '全部关系', selected: this.graphRelationIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'graph-relation-all', onAction: () => { this.graphRelationIds = []; } })
-          ForEach(this.data.relations, (item: NamedItem) => {
-            FilterTab({ label: item.name, selected: this.graphRelationIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'graph-relation-' + item.id, onAction: () => { this.graphRelationIds = toggled(this.graphRelationIds, item.id); } })
-          }, (item: NamedItem) => item.id)
+          if (this.homeBranchGraph) {
+            FilterTab({ label: '全部分支', selected: this.graphBranchIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'home-graph-branch-all', onAction: () => { this.graphBranchIds = []; } })
+            ForEach(this.data.branches, (item: NamedItem) => {
+              FilterTab({ label: item.name, selected: this.graphBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'home-graph-branch-' + item.id, onAction: () => { this.graphBranchIds = toggled(this.graphBranchIds, item.id); } })
+            }, (item: NamedItem) => item.id)
+          } else {
+            FilterTab({ label: '全部关系', selected: this.graphRelationIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'graph-relation-all', onAction: () => { this.graphRelationIds = []; } })
+            ForEach(this.data.relations, (item: NamedItem) => {
+              FilterTab({ label: item.name, selected: this.graphRelationIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'graph-relation-' + item.id, onAction: () => { this.graphRelationIds = toggled(this.graphRelationIds, item.id); } })
+            }, (item: NamedItem) => item.id)
+          }
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
-      if (this.preview) {
-        this.empty('关系图', '实际运行时显示可拖动的小球与连线。')
-        Blank()
-      } else {
-        NativeGraph({ payload: this.graphPayload('home', this.data.profile.defaultPersonId), theme: this.graphTheme(), paperColor: this.colors.paper, palette: this.colors,
-        onPerson: (id: string) => this.graphPerson(id), onEvent: (id: string) => this.open('event', id) })
-        .layoutWeight(1)
-      }
-      if (this.data.persons.filter((person: Person) => person.deletedAt === null && person.id !== this.data.profile.defaultPersonId).length === 0) {
+      Stack({ alignContent: Alignment.BottomStart }) {
+        if (this.preview) {
+          Column() {
+            this.empty(this.homeBranchGraph ? '生活分支图谱' : '关系图', '实际运行时显示可拖动的小球与连线。')
+            Blank()
+          }.width('100%').height('100%')
+        } else {
+          NativeGraph({ payload: this.graphPayload(this.homeBranchGraph ? 'branch' : 'home', this.data.profile.defaultPersonId), theme: this.graphTheme(), paperColor: this.colors.paper, palette: this.colors,
+          onPerson: (id: string) => this.graphPerson(id), onEvent: (id: string) => this.open('event', id) })
+          .width('100%').height('100%')
+        }
+        Button(this.homeBranchGraph ? '⇄ 人际' : '⇄ 生活', { type: ButtonType.Normal })
+          .fontSize(12).height(32).padding({ left: 12, right: 12 }).borderRadius(12)
+          .fontColor(this.colors.primary).backgroundColor('#14' + this.colors.primary.substring(1))
+          .border({ width: 1, color: '#40' + this.colors.primary.substring(1) })
+          .margin({ left: 0, bottom: 8 }).id('home-graph-switch').enabled(!this.busy)
+          .accessibilityText(this.homeBranchGraph ? '切换到人际关系图谱' : '切换到生活分支图谱')
+          .onClick(() => { this.homeBranchGraph = !this.homeBranchGraph; })
+      }.width('100%').layoutWeight(1)
+      if (!this.homeBranchGraph && this.data.persons.filter((person: Person) => person.deletedAt === null && person.id !== this.data.profile.defaultPersonId).length === 0) {
         Row({ space: 10 }) {
           Text('添加人物和关系后，在这里查看联系。').fontSize(12).fontColor(this.colors.muted).layoutWeight(1)
           Button('添加人物', { type: ButtonType.Normal }).fontSize(12).height(38).fontColor(this.colors.primary).backgroundColor(Color.Transparent)

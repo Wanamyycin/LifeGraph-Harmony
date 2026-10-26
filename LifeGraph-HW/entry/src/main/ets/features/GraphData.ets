@@ -22,6 +22,7 @@ export class GraphEdge {
   target: string = '';
   label: string = '';
   color: string = '';
+  opacity: number = 0.5;
   strength: number | null = null;
 }
 
@@ -59,12 +60,13 @@ export function buildGraph(data: AppSnapshot, mode: string, centerId: string, re
       node.coverUri = images.get(card.assets.find((asset) => asset.role === 'cover')?.id ?? '') ?? null;
       graph.eventNodes.push(node);
       if (mode === 'branch') {
-        const link = new GraphEdge(); link.source = centerId; link.target = node.id; link.color = palette.border; graph.edges.push(link);
+        const link = new GraphEdge(); link.source = centerId; link.target = node.id; link.color = palette.primary; link.opacity = 0.8; graph.edges.push(link);
       }
       for (const personId of card.personIds) {
         if (!valid.has(personId) || (mode === 'branch' && personId === centerId)) { continue; }
         ids.add(personId);
-        const link = new GraphEdge(); link.source = node.id; link.target = personId; link.color = palette.border; graph.edges.push(link);
+        const link = new GraphEdge(); link.source = node.id; link.target = personId; link.color = mode === 'branch' ? palette.primary : palette.border;
+        link.opacity = mode === 'branch' ? 0.8 : 0.5; graph.edges.push(link);
       }
     }
   }

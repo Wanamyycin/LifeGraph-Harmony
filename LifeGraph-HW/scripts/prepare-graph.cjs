@@ -41,6 +41,7 @@ for (const theme of ['forest', 'ocean', 'sunset', 'minimal']) for (const dark of
   html = html.replace(`<script>${D3_SCRIPT}</script>`, '<script src="d3.min.js"></script>\n<script src="graph-focus.js"></script>');
   html = html.replace('    simulation.on("tick", function () {',
     `    bindGraphFocus(svg, g, link, drag, ${JSON.stringify(colors.primary)}, ${JSON.stringify(colors.border)}, ${dark});\n\n    simulation.on("tick", function () {`);
+  html = html.replace('          strength: e.strength,', '          strength: e.strength,\n          opacity: e.opacity,');
   html = html.replace('<head>', `<head><script>
 window.ReactNativeWebView={postMessage:function(message){
   if(window.nativeBridge){window.nativeBridge.postMessage(message);}

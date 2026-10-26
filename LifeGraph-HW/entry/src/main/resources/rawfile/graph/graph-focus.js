@@ -1,4 +1,6 @@
 function bindGraphFocus(svg, graph, links, drag, primary, border, dark) {
+  function normalOpacity(edge) { return edge.opacity || 0.5; }
+
   function focus(id) {
     function adjacent(edge) {
       return edge.source.id === id || edge.target.id === id;
@@ -15,11 +17,11 @@ function bindGraphFocus(svg, graph, links, drag, primary, border, dark) {
         return id !== null && adjacent(edge) ? 3 : 2;
       })
       .attr("stroke-opacity", function (edge) {
-        return id === null ? 0.5 : adjacent(edge) ? 0.95 : 0.25;
+        return id === null ? normalOpacity(edge) : adjacent(edge) ? 0.95 : 0.25;
       });
   }
 
-  links.attr("stroke-linecap", "round");
+  links.attr("stroke-linecap", "round").attr("stroke-opacity", normalOpacity);
   drag
     .on("start.focus", function (event, node) { focus(node.id); })
     .on("end.focus", function () { focus(null); });
