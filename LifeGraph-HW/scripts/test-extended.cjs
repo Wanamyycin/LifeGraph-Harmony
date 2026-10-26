@@ -8,7 +8,7 @@ const { buildGraph } = require('../entry/src/main/ets/features/GraphData.ets');
 const { AIAgent, ChatReply, ToolCall, executeTool } = require('../entry/src/main/ets/features/AIAgent.ets');
 const { AppSnapshot, NamedItem, RelationEdge, EventCard, Palette, ProfileConfig, paletteFor, graphThemeFor } = require('../entry/src/main/ets/domain/Models.ets');
 const { Person } = require('../entry/src/main/ets/domain/Person.ets');
-const { findEvents, formatBytes } = require('../entry/src/main/ets/features/EventQuery.ets');
+const { findEvents, formatBytes, timelineEvents, groupTimelineEvents, timelineGroupLabel, eventWeekdayLabel } = require('../entry/src/main/ets/features/EventQuery.ets');
 const { ColorModeController } = require('../entry/src/main/ets/runtime/ColorModeController.ets');
 
 test('graph and native palette agree for explicit light/dark and follow-system in every theme', () => {
@@ -145,6 +145,22 @@ test('event search combines multiple branches with OR and supports an independen
   assert.equal(findEvents(data, '工作', ['daily']).length, 0);
   assert.equal(findEvents(data, '工作', []).length, 1);
   assert.equal(findEvents(data, '', ['missing']).length, 0);
+});
+
+test('timeline filters shared experiences, orders newest first, and groups by selected grain', () => {
+  const data = graphFixture();
+  data.events[0].event.occurredAt = new Date(2026, 9, 21).getTime();
+  const second = new EventCard(); second.event.id = 'older'; second.event.title = '更早的记录';
+  second.event.occurredAt = new Date(2025, 8, 1).getTime(); second.personIds = ['friend']; data.events.push(second);
+  const newest = timelineEvents(data, { query: '', branchIds: [], personId: 'friend', grain: 'month', ascending: false });
+  assert.deepEqual(newest.map(card => card.event.id), ['walk', 'older']);
+  const oldest = timelineEvents(data, { query: '', branchIds: [], personId: 'friend', grain: 'month', ascending: true });
+  assert.deepEqual(oldest.map(card => card.event.id), ['older', 'walk']);
+  assert.equal(timelineEvents(data, { query: '', branchIds: [], personId: 'unconnected', grain: 'month', ascending: false }).length, 0);
+  const groups = groupTimelineEvents(newest, 'month');
+  assert.deepEqual(groups.map(group => group.key), ['2026-10', '2025-09']);
+  assert.equal(timelineGroupLabel(new Date(2026, 9, 21).getTime(), 'year'), '2026 年');
+  assert.equal(eventWeekdayLabel(new Date(2026, 9, 21).getTime()), '周三');
 });
 
 test('space labels distinguish byte units and unavailable measurements', () => {
