@@ -33,6 +33,7 @@ window.ReactNativeWebView={postMessage:function(message){
 <body>
 <svg id="graph"></svg>
 <script src="d3.min.js"></script>
+<script src="graph-focus.js"></script>
 <script>
   var svg = d3.select("#graph");
   var width = window.innerWidth;
@@ -297,6 +298,8 @@ window.ReactNativeWebView={postMessage:function(message){
     eventGroup.append("text")
       .attr("dy", function (d) { return d.r + 13; })
       .text(function (d) { return d.title || ""; });
+
+    bindGraphFocus(svg, g, link, drag, "#7AAED8", "#3A473D", true);
 
     simulation.on("tick", function () {
       link

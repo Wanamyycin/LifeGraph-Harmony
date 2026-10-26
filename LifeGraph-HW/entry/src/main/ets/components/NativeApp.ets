@@ -846,8 +846,10 @@ export struct NativeApp {
 
   @Builder
   peopleList() {
-    Column({ space: 16 }) {
+    Column({ space: 10 }) {
       Search({ value: this.peopleSearch, placeholder: '搜索姓名或描述' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
+        .height(36)
+        .margin(0)
         .id('people-search')
         .onFocus(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE))
         .onBlur(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE))
@@ -970,10 +972,16 @@ export struct NativeApp {
   eventsList() {
     Column({ space: 10 }) {
       Search({ value: this.eventSearch, placeholder: '搜索生活记录' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
+        .height(36)
+        .margin(0)
         .id('events-search')
         .onFocus(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE))
         .onBlur(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE))
-        .onChange((value: string) => { this.eventSearch = value; this.timelineExpandedEventIds = []; this.resetTimelineFolds(); })
+        .onChange((value: string) => {
+          this.eventSearch = value;
+          this.timelineExpandedEventIds = [];
+          this.resetTimelineFolds();
+        })
       Row({ space: 8 }) {
         Text('按月展开').fontSize(12).fontColor(this.colors.primary).layoutWeight(1)
           .padding({ left: 12, right: 12, top: 9, bottom: 9 }).backgroundColor(this.colors.soft).borderRadius(10)
@@ -1363,7 +1371,7 @@ export struct NativeApp {
   @Builder
   searchPage() {
     Column({ space: 14 }) {
-      Search({ value: this.search, placeholder: '搜索人物、生活记录' }).backgroundColor(this.colors.card).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
+      Search({ value: this.search, placeholder: '搜索人物、生活记录' }).height(36).margin(0).backgroundColor(this.colors.card).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
         .onChange((value: string) => { this.search = value; })
       Row({ space: 10 }) {
         ChoiceChip({ label: '人物', selected: this.searchKind === 0, palette: this.colors, disabled: this.busy, onAction: () => { this.searchKind = 0; } })
@@ -1446,7 +1454,7 @@ export struct NativeApp {
   destination(name: string, param: Object) {
     NavDestination() {
       Column() {
-        Column({ space: 16 }) {
+        Column({ space: 8 }) {
           if (name !== 'aiHistory') {
             PageHeading({ title: routeTitle(name, this.tagKind), palette: this.colors, showBack: true,
               showAdd: name === 'people' || name === 'events', disabled: this.busy,
@@ -1489,7 +1497,7 @@ export struct NativeApp {
           else if (name === 'backup') { this.backupPage() }
           else if (name === 'profile') { this.profilePage() }
         }.width('100%').height(editorDestination(name) ? '94%' : '100%')
-          .padding({ top: 18, left: 20, right: 20, bottom: 12 }).backgroundColor(this.colors.paper)
+          .padding({ top: 8, left: 20, right: 20, bottom: 12 }).backgroundColor(this.colors.paper)
           .borderRadius({ topLeft: editorDestination(name) ? 24 : 0, topRight: editorDestination(name) ? 24 : 0 })
           .clip(true)
       }.width('100%').height('100%').justifyContent(FlexAlign.End)
@@ -1500,9 +1508,9 @@ export struct NativeApp {
 
   build() {
     Navigation(this.paths) {
-      Column({ space: 12 }) {
+      Column({ space: 6 }) {
         PageHeading({ title: mainTitle(this.tab), palette: this.colors, showSearch: this.tab !== MainTab.Assistant,
-          showAdd: this.tab === MainTab.People, showProfile: true, avatarUri: this.assetUri(this.self()?.avatarAssetId ?? null),
+          showAdd: this.tab === MainTab.People, showProfile: true,
           disabled: this.busy, onSearchAction: () => this.open('search'), onAddAction: () => this.editPerson(), onProfileAction: () => this.open('profile') })
         this.feedback()
         if (this.busy && !this.ready) { LoadingProgress().width(40).height(40).color(this.colors.primary); Blank() }
@@ -1527,7 +1535,7 @@ export struct NativeApp {
               disabled: !this.ready || this.busy, controlId: 'tab-assistant', onAction: () => this.selectTab(MainTab.Assistant) }).layoutWeight(1)
           }.width('100%').padding({ top: 6, bottom: 2 }).border({ width: { top: 1 }, color: this.colors.border })
         }
-      }.width('100%').height('100%').padding({ top: 16, left: 20, right: 20, bottom: 8 }).backgroundColor(this.colors.paper)
+      }.width('100%').height('100%').padding({ top: 4, left: 20, right: 20, bottom: 8 }).backgroundColor(this.colors.paper)
     }.hideTitleBar(true).navDestination(this.destination).mode(NavigationMode.Stack).width('100%').height('100%')
   }
 }
