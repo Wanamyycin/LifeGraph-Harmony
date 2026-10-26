@@ -59,19 +59,7 @@ export function buildGraph(data: AppSnapshot, mode: string, centerId: string, re
       node.coverUri = images.get(card.assets.find((asset) => asset.role === 'cover')?.id ?? '') ?? null;
       graph.eventNodes.push(node);
       if (mode === 'branch') {
-        for (const branchId of card.branchIds) {
-          const id = 'branch:' + branchId;
-          if (!ids.has(id)) {
-            const branch = new GraphPerson(); branch.id = id; branch.name = data.branches.find((item) => item.id === branchId)?.name ?? '生活分支';
-            branch.nodeType = 'branch'; graph.personNodes.push(branch); ids.add(id);
-            const rootLink = new GraphEdge(); rootLink.source = centerId; rootLink.target = id; rootLink.color = palette.primary;
-            graph.edges.push(rootLink);
-          }
-          const edge = new GraphEdge(); edge.source = id; edge.target = node.id; edge.color = palette.border; graph.edges.push(edge);
-        }
-        if (card.branchIds.length === 0) {
-          const link = new GraphEdge(); link.source = centerId; link.target = node.id; link.color = palette.border; graph.edges.push(link);
-        }
+        const link = new GraphEdge(); link.source = centerId; link.target = node.id; link.color = palette.border; graph.edges.push(link);
       }
       for (const personId of card.personIds) {
         if (!valid.has(personId) || (mode === 'branch' && personId === centerId)) { continue; }
