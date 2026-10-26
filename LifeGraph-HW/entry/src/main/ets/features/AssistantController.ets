@@ -1,4 +1,4 @@
-import { AssistantAnswer, AssistantReference, AssistantTurn } from '../domain/Assistant';
+import { AssistantAnswer, AssistantReference, AssistantTurn, ToolArguments } from '../domain/Assistant';
 import { ASSISTANT_HELP, HelpEntry, localHelpText } from './AssistantHelp';
 
 export interface ConversationStore {
@@ -6,7 +6,7 @@ export interface ConversationStore {
   save(turns: AssistantTurn[]): Promise<void>;
 }
 export interface AssistantRunner {
-  ask(question: string, history: AssistantTurn[], progress: (text: string) => void): Promise<AssistantAnswer>;
+  ask(question: string, history: AssistantTurn[], progress: (text: string) => void, scope?: ToolArguments): Promise<AssistantAnswer>;
   cancel(): void;
 }
 export class AssistantState {
@@ -40,16 +40,16 @@ export class AssistantController {
       if (!this.current(generation)) { return; }
       this.state.turns = turns; this.state.ready = true; this.state.error = '';
     } catch (_) {
-      if (this.current(generation)) { this.state.error = '聊天记录暂时无法读取，可重新打开应用，或清空聊天后重试；人物和事件不受影响。'; }
+      if (this.current(generation)) { this.state.error = '这段聊天暂时无法读取，可从历史聊天重新选择，或删除此聊天后重试；人物和事件不受影响。'; }
     }
     if (this.current(generation)) { this.publish(); }
   }
-  async send(question: string): Promise<void> {
+  async send(question: string, scope?: ToolArguments): Promise<void> {
     if (!this.active || this.state.busy || !this.state.ready || question.trim().length === 0) { return; }
     if (question.length > 6000) { this.state.error = '问题最多6000字，请缩短后再发送'; this.publish(); return; }
     const generation = ++this.generation;
     const history = this.snapshot().turns;
-    const user = makeTurn(question.trim(), true); user.status = 'pending';
+    const user = makeTurn(question.trim(), true); user.status = 'pending'; user.scope = scope;
     this.state.turns = [...this.state.turns, user]; this.state.busy = true; this.state.error = ''; this.state.progress = '正在准备查询…'; this.publish();
     try {
       await this.persist();
@@ -57,7 +57,7 @@ export class AssistantController {
       const runner = this.runnerFactory(); this.runner = runner;
       const answer = await runner.ask(question.trim(), history, (text: string) => {
         if (this.current(generation)) { this.state.progress = text; this.onProgress(text); }
-      });
+      }, scope);
       if (!this.current(generation)) { return; }
       this.finishUser(user.id, 'complete');
       const response = makeTurn(answer.text, false); response.references = answer.references;
@@ -94,7 +94,7 @@ export class AssistantController {
       await this.persist([]);
       if (this.current(generation)) { this.state.turns = []; this.state.ready = true; this.publish(); }
     } catch (_) {
-      if (this.current(generation)) { this.state.ready = true; this.state.error = '聊天清空未完成，原聊天仍保留，请重试'; this.publish(); }
+      if (this.current(generation)) { this.state.ready = true; this.state.error = '聊天删除未完成，原聊天仍保留，请重试'; this.publish(); }
     }
   }
   async showHelp(): Promise<void> {

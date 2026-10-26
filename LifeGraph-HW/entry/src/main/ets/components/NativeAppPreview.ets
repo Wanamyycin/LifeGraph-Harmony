@@ -12,6 +12,12 @@ function fixture(): AppSnapshot {
   card.personIds = [self.id, friend.id]; data.events = [card]; return data;
 }
 
+@Preview({ title: '助手首页（只读）' })
+@Component
+struct NativeAssistantHomePreview {
+  build() { NativeApp({ forcePreview: true, previewData: fixture(), previewRoute: 'ai' }) }
+}
+
 @Preview({ title: '新版人物列表（只读）' })
 @Component
 struct NativePeoplePreview {

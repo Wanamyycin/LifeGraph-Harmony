@@ -4,7 +4,8 @@ import { AppSnapshot, EventCard, EventDraft, EventRecord, MediaAsset, NamedItem,
 import { SqlConnection, SqlDatabase, SqlRow, SqlValue } from '../data/SqlDatabase';
 import { ACCOUNT_SCHEMA } from '../data/Schema';
 import { BACKUP_TABLES, BackupEnvelope, BackupTable } from '../domain/Backup';
-import { AssistantTurn, decodeConversation, encodeConversation } from '../domain/Assistant';
+import { AssistantTurn, ToolArguments, decodeConversation, encodeConversation } from '../domain/Assistant';
+import { AssistantChat, AssistantChatSave, AssistantHistory, assistantChatPreview, assistantChatTitle, decodeAssistantHistory } from '../domain/AssistantHistory';
 
 export class LifeGraphService {
   private db: SqlDatabase;
@@ -265,17 +266,126 @@ export class LifeGraphService {
   }
 
   async loadAssistantConversation(): Promise<AssistantTurn[]> {
-    return this.db.read(async (c: SqlConnection): Promise<AssistantTurn[]> => {
-      const rows = await c.query('SELECT value FROM app_config WHERE key=?', ['assistant_conversation_v1']);
-      return rows.length === 0 ? [] : decodeConversation(rows[0].text('value'));
-    });
+    const history = await this.loadAssistantHistory();
+    return this.loadAssistantChat(history.activeId);
   }
 
   async saveAssistantConversation(turns: AssistantTurn[]): Promise<void> {
-    const value = encodeConversation(turns);
-    await this.db.transaction(async (c: SqlConnection): Promise<void> => {
-      await c.execute('INSERT OR REPLACE INTO app_config(key,value) VALUES(?,?)', ['assistant_conversation_v1', value]);
+    const history = await this.loadAssistantHistory();
+    if (turns.length === 0) { await this.deleteAssistantChat(history.activeId); }
+    else { await this.saveAssistantChat(history.activeId, turns); }
+  }
+
+  async loadAssistantHistory(): Promise<AssistantHistory> {
+    return this.db.transaction((c: SqlConnection): Promise<AssistantHistory> => this.assistantHistory(c));
+  }
+
+  async loadAssistantChat(id: string): Promise<AssistantTurn[]> {
+    if (id.length === 0) { return []; }
+    return this.db.read(async (c: SqlConnection): Promise<AssistantTurn[]> => {
+      const rows = await c.query('SELECT value FROM app_config WHERE key=?', ['assistant_chat_v1_' + id]);
+      if (rows.length === 0) { throw new Error('这段聊天已不存在，请从历史聊天中重新选择'); }
+      return decodeConversation(rows[0].text('value'));
     });
+  }
+
+  async saveAssistantChat(id: string, turns: AssistantTurn[]): Promise<AssistantChatSave> {
+    const value = encodeConversation(turns);
+    if (turns.length === 0) { throw new Error('空白聊天不需要保存为历史'); }
+    return this.db.transaction(async (c: SqlConnection): Promise<AssistantChatSave> => {
+      const history = await this.assistantHistory(c);
+      let chat = history.chats.find((item: AssistantChat) => item.id === id);
+      if (chat === undefined) {
+        if (id.length > 0) { throw new Error('这段聊天已被删除，请新建聊天'); }
+        chat = new AssistantChat(); chat.id = this.makeId(); chat.title = assistantChatTitle(turns);
+        chat.createdAt = turns[0].createdAt; history.chats.push(chat);
+      }
+      chat.preview = assistantChatPreview(turns);
+      chat.updatedAt = Math.max(...turns.map((turn: AssistantTurn) => turn.createdAt));
+      chat.draft = ''; chat.draftScope = undefined;
+      if (history.activeId === id) {
+        history.activeId = chat.id;
+        history.draft = ''; history.draftScope = undefined;
+      }
+      await c.execute('INSERT OR REPLACE INTO app_config(key,value) VALUES(?,?)', ['assistant_chat_v1_' + chat.id, value]);
+      await this.writeAssistantHistory(c, history);
+      const saved = new AssistantChatSave(); saved.id = chat.id; saved.history = history; return saved;
+    });
+  }
+
+  async activateAssistantChat(id: string): Promise<void> {
+    await this.db.transaction(async (c: SqlConnection): Promise<void> => {
+      const history = await this.assistantHistory(c);
+      if (id.length > 0 && !history.chats.some((chat: AssistantChat) => chat.id === id)) { throw new Error('这段聊天已被删除'); }
+      if (id.length === 0 && history.activeId.length > 0) { history.draft = ''; history.draftScope = undefined; }
+      history.activeId = id;
+      await this.writeAssistantHistory(c, history);
+    });
+  }
+
+  async saveAssistantDraft(id: string, text: string, scope?: ToolArguments): Promise<void> {
+    if (text.length > 6000) { throw new Error('问题最多6000字'); }
+    await this.db.transaction(async (c: SqlConnection): Promise<void> => {
+      const history = await this.assistantHistory(c);
+      if (id.length === 0) { history.draft = text; history.draftScope = scope; }
+      else {
+        const chat = history.chats.find((item: AssistantChat) => item.id === id);
+        if (chat === undefined) { return; }
+        chat.draft = text; chat.draftScope = scope;
+      }
+      await this.writeAssistantHistory(c, history);
+    });
+  }
+
+  async deleteAssistantChat(id: string): Promise<AssistantHistory> {
+    return this.db.transaction(async (c: SqlConnection): Promise<AssistantHistory> => {
+      const history = await this.assistantHistory(c);
+      history.chats = history.chats.filter((chat: AssistantChat) => chat.id !== id);
+      if (history.activeId === id) { history.activeId = ''; history.draft = ''; history.draftScope = undefined; }
+      if (id.length > 0) { await c.execute('DELETE FROM app_config WHERE key=?', ['assistant_chat_v1_' + id]); }
+      await this.writeAssistantHistory(c, history); return history;
+    });
+  }
+
+  async searchAssistantChats(query: string): Promise<string[]> {
+    const needle = query.trim().toLocaleLowerCase();
+    const history = await this.loadAssistantHistory();
+    if (needle.length === 0) { return history.chats.map((chat: AssistantChat) => chat.id); }
+    return this.db.read(async (c: SqlConnection): Promise<string[]> => {
+      const ids = new Set<string>(history.chats.filter((chat: AssistantChat) => chat.title.toLocaleLowerCase().includes(needle) ||
+        chat.preview.toLocaleLowerCase().includes(needle)).map((chat: AssistantChat) => chat.id));
+      const rows = await c.query('SELECT key,value FROM app_config WHERE key LIKE ? AND instr(lower(value),lower(?)) > 0', ['assistant_chat_v1_%', needle]);
+      for (const row of rows) {
+        if (decodeConversation(row.text('value')).some((turn: AssistantTurn) => turn.text.toLocaleLowerCase().includes(needle))) {
+          ids.add(row.text('key').slice('assistant_chat_v1_'.length));
+        }
+      }
+      return history.chats.filter((chat: AssistantChat) => ids.has(chat.id)).map((chat: AssistantChat) => chat.id);
+    });
+  }
+
+  private async assistantHistory(c: SqlConnection): Promise<AssistantHistory> {
+    const rows = await c.query('SELECT value FROM app_config WHERE key=?', ['assistant_history_v1']);
+    if (rows.length > 0) { return decodeAssistantHistory(rows[0].text('value')); }
+    const history = new AssistantHistory();
+    const legacy = await c.query('SELECT value FROM app_config WHERE key=?', ['assistant_conversation_v1']);
+    if (legacy.length > 0) {
+      const turns = decodeConversation(legacy[0].text('value'));
+      if (turns.length > 0) {
+        const chat = new AssistantChat(); chat.id = this.makeId(); chat.title = assistantChatTitle(turns);
+        chat.preview = assistantChatPreview(turns); chat.createdAt = turns[0].createdAt;
+        chat.updatedAt = Math.max(...turns.map((turn: AssistantTurn) => turn.createdAt));
+        history.activeId = chat.id; history.chats = [chat];
+        await c.execute('INSERT INTO app_config(key,value) VALUES(?,?)', ['assistant_chat_v1_' + chat.id, encodeConversation(turns)]);
+      }
+      await c.execute('DELETE FROM app_config WHERE key=?', ['assistant_conversation_v1']);
+    }
+    await this.writeAssistantHistory(c, history); return history;
+  }
+
+  private async writeAssistantHistory(c: SqlConnection, history: AssistantHistory): Promise<void> {
+    history.chats.sort((a: AssistantChat, b: AssistantChat) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    await c.execute('INSERT OR REPLACE INTO app_config(key,value) VALUES(?,?)', ['assistant_history_v1', JSON.stringify(history)]);
   }
 
   async avatarAsset(id: string | null): Promise<MediaAsset | null> {
