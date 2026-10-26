@@ -14,6 +14,7 @@ export class AssistantTurn {
   readAt: number = 0;
   references: AssistantReference[] = [];
   contextNote: string = '';
+  scope?: ToolArguments;
 }
 
 export class AssistantAnswer {
@@ -71,7 +72,7 @@ export function decodeConversation(value: string): AssistantTurn[] {
 
 export function encodeConversation(turns: AssistantTurn[]): string {
   const value = JSON.stringify(turns);
-  if (value.length > 1000000 || utf8Length(value) > 1000000 || turns.length > 1000) { throw new Error('聊天记录已达当前容量上限，请先备份或复制需要的内容，再清空对话'); }
+  if (value.length > 1000000 || utf8Length(value) > 1000000 || turns.length > 1000) { throw new Error('这段聊天已达当前容量上限，请先备份或复制需要的内容，再新建聊天'); }
   // Validate an independent copy; never rewrite a live pending turn on save.
   decodeConversation(value);
   return value;

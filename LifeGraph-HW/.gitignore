@@ -20,3 +20,7 @@
 /evidence/buttons-*.json
 **/__pycache__
 **/.preview
+.test
+
+/scripts/test-assistant.local.cjs
+/scripts/test-core.local.cjs

@@ -1,6 +1,7 @@
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { Person } from '../domain/Person';
 import { AppSnapshot, EventCard, EventDraft, NamedItem, Palette, PersonDraft, ProfileConfig,
   MediaAsset, RelationEdge, RelationInput, paletteFor, graphThemeFor } from '../domain/Models';
@@ -15,11 +16,15 @@ import { MediaFiles } from '../data/MediaFiles';
 import { VoiceRecorder } from '../data/VoiceRecorder';
 import { EventAttachments } from './EventAttachments';
 import { AssistantBubble } from './AssistantBubble';
-import { AssistantReference, AssistantTurn, referenceUrl } from '../domain/Assistant';
+import { AssistantReference, AssistantTurn, ToolArguments, referenceUrl } from '../domain/Assistant';
+import { AssistantHistory } from '../domain/AssistantHistory';
 import { AssistantController, AssistantState } from '../features/AssistantController';
 import { ServiceConversationStore, NativeAssistantRunner } from '../data/NativeAssistant';
 import { safeMarkdownLink } from '../features/Markdown';
-import { AIServiceDialog } from './AIServiceDialog';
+import { AIServicePage } from './AIServicePage';
+import { AssistantEntrySheet } from './AssistantEntrySheet';
+import { AssistantHistoryPage } from './AssistantHistoryPage';
+import { AssistantEntryRequest } from '../features/AssistantEntry';
 import { OpenAIConfig, prepareOpenAIConfig } from '../domain/OpenAIConfig';
 import { AIConfigVault } from '../data/AIConfigVault';
 import { RelationEditorItem } from './RelationEditorItem';
@@ -96,18 +101,24 @@ export struct NativeApp {
   @State aiError: string = '';
   @State aiStatus: string = '';
   @State aiConfigured: boolean = false;
-  @State aiModelLabel: string = '';
+  @State aiEntryOpen: boolean = false;
+  @State aiEntryKind: string = 'together';
+  @State aiEditing: boolean = false;
+  @State aiHistory: AssistantHistory = new AssistantHistory();
+  @State aiSwitching: boolean = false;
   @State aiVisibleCount: number = 40;
   @State backupMessage: string = '';
   @State storageLabel: string = '尚未统计';
   private assistant: AssistantController | null = null;
+  private aiConversationStore: ServiceConversationStore | null = null;
+  private aiDraftTimer: number = -1;
   private aiScroller: Scroller = new Scroller();
   private aiScrollTimer: number = -1;
   private chatSignature: string = '';
   private aiLinkGeneration: number = 0;
   private aiConfig: OpenAIConfig | null = null;
   private aiVault: AIConfigVault = new AIConfigVault();
-  private aiSettingsController: CustomDialogController | null = null;
+  private aiScope: ToolArguments | undefined = undefined;
   private aiSettingsSaving: boolean = false;
   private aiSettingsError: string = '';
   private files: MediaFiles | null = null;
@@ -120,11 +131,12 @@ export struct NativeApp {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     this.controller.bind(() => this.goBack());
-    ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } if (this.aiBusy) { this.assistant?.cancel(); } };
+    ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } this.pauseAssistant(); };
     this.preview = ApplicationRuntime.useVisualPreview(this.forcePreview);
     if (this.preview) {
-      this.data = this.previewData; this.themeChanged(); this.ready = true;
+      this.data = this.previewData; this.themeChanged(); this.ready = true; this.aiReady = true;
       if (this.previewRoute === 'personEditor') { this.editPerson(); }
       else if (this.previewRoute === 'eventEditor') { this.editEvent(); }
       else if (this.previewRoute.length > 0) { this.open(this.previewRoute); }
@@ -134,9 +146,9 @@ export struct NativeApp {
   }
 
   aboutToDisappear(): void {
+    this.saveAssistantDraft().catch(() => { hilog.warn(0x0000, 'LifeGraph', 'Chat draft could not be saved'); });
     this.alive = false; this.controller.clear(); this.thumbnailGeneration++;
     this.aiLinkGeneration++; this.assistant?.dispose(); clearTimeout(this.aiScrollTimer);
-    try { this.aiSettingsController?.close(); } catch (_) {} this.aiSettingsController = null;
     ApplicationRuntime.onBackground = null; clearInterval(this.recordingTimer);
     this.voice.release().catch(() => {});
   }
@@ -210,32 +222,34 @@ export struct NativeApp {
   }
 
   private open(name: string, id: string = ''): void {
-    if (this.busy || !this.ready) { return; }
+    if (this.busy || this.aiSwitching || !this.ready) { return; }
     if (this.recording) { this.error = '请先停止录音再离开'; return; }
     this.error = ''; this.notice = '';
     // All assistant entry points use one list/scroller and one conversation view.
     if (name === 'ai') { this.paths.clear(); this.selectTab(MainTab.Assistant); this.scrollChat(); return; }
-    if (name !== 'ai' && assistantVisible(this.tab, this.paths.getAllPathName())) { this.pauseAssistant(); }
+    if (name !== 'ai' && name !== 'aiHistory' && assistantVisible(this.tab, this.paths.getAllPathName())) { this.pauseAssistant(); }
     if (name === 'people') { this.peopleSearch = ''; }
     if (name === 'events') { this.eventSearch = ''; }
     if (name === 'search') { this.search = ''; }
     this.paths.pushPathByName(name, new RouteParam(id));
   }
 
-  private pauseAssistant(): void {
+  private async pauseAssistant(): Promise<void> {
     this.aiLinkGeneration++; clearTimeout(this.aiScrollTimer);
-    if (this.aiBusy) { this.assistant?.cancel(); }
+    await this.assistant?.cancel();
+    try { await this.saveAssistantDraft(); }
+    catch (_) { if (this.alive) { this.error = '未发送的内容暂未保存，请重试'; } }
   }
 
   private selectTab(tab: MainTab): void {
-    if (this.busy || !this.ready || this.recording || this.paths.size() > 0 || tab === this.tab) { return; }
+    if (this.busy || this.aiSwitching || !this.ready || this.recording || this.paths.size() > 0 || tab === this.tab) { return; }
     if (this.tab === MainTab.Assistant) { this.pauseAssistant(); }
     this.tab = tab; this.error = ''; this.notice = '';
     if (tab === MainTab.Assistant) { this.scrollChat(); }
   }
 
   private goBack(): boolean {
-    if (this.busy) { return true; }
+    if (this.busy || this.aiSettingsSaving || this.aiSwitching) { return true; }
     if (this.recording) { this.error = '请先停止录音再离开'; return true; }
     const pages = this.paths.getAllPathName();
     const current = pages[pages.length - 1] ?? '';
@@ -509,7 +523,7 @@ export struct NativeApp {
   private async loadAIConfig(): Promise<void> {
     try {
       this.aiConfig = await this.aiVault.load(); this.aiConfigured = this.aiConfig !== null;
-      this.aiModelLabel = this.aiConfig?.model ?? ''; this.aiSettingsError = '';
+      this.aiSettingsError = '';
     } catch (_) {
       this.aiSettingsError = '安全配置暂时无法读取。可重新填写并保存，或取消“在本机安全保存”仅本次使用。';
     }
@@ -517,14 +531,7 @@ export struct NativeApp {
 
   private openAISettings(): void {
     if (this.aiBusy || this.busy || !this.alive) { return; }
-    this.aiSettingsController = new CustomDialogController({
-      builder: AIServiceDialog({ initialUrl: this.aiConfig?.url ?? '', initialModel: this.aiConfig?.model ?? '',
-        hasKey: this.aiConfig !== null, initialError: this.aiSettingsError, palette: this.colors,
-        onSave: (url: string, key: string, model: string, remember: boolean) => this.saveAIConfig(url, key, model, remember) }),
-      autoCancel: false, customStyle: true, alignment: DialogAlignment.Center,
-      onWillDismiss: (action: DismissDialogAction) => { if (!this.aiSettingsSaving) { action.dismiss(); } }
-    });
-    this.aiSettingsController.open();
+    this.open('aiSettings');
   }
 
   private async saveAIConfig(url: string, key: string, model: string, remember: boolean): Promise<void> {
@@ -535,25 +542,42 @@ export struct NativeApp {
       const config = prepareOpenAIConfig(url, key, model, this.aiConfig);
       if (remember) { await this.aiVault.save(config); }
       if (!this.alive) { return; }
-      this.aiConfig = config; this.aiConfigured = true; this.aiModelLabel = config.model; this.aiSettingsError = ''; this.error = '';
+      this.aiConfig = config; this.aiConfigured = true; this.aiSettingsError = ''; this.error = '';
       this.notice = remember ? 'AI 配置已安全保存' : 'AI 配置已应用，仅本次使用';
     } finally { this.aiSettingsSaving = false; }
   }
 
   private async askAI(): Promise<void> {
     if (this.preview) { this.error = '请在模拟器或真机中连接 AI 服务'; return; }
-    if (this.aiBusy || this.busy || this.question.trim().length === 0) { return; }
+    if (this.aiBusy || this.aiSwitching || this.busy || this.question.trim().length === 0) { return; }
+    clearTimeout(this.aiDraftTimer);
+    this.getUIContext().getFocusController().clearFocus(); this.aiEditing = false;
     if (this.aiConfig === null) { this.openAISettings(); return; }
-    if (!this.aiReady || this.assistant === null) { this.error = '聊天记录尚未就绪，请稍后或清空聊天后重试'; return; }
-    const question = this.question.trim(); this.question = ''; this.error = '';
-    await this.assistant.send(question);
+    if (!this.aiReady || this.assistant === null) { this.error = '聊天记录尚未就绪，请稍后或从历史聊天中重新选择'; return; }
+    const question = this.question.trim(); const scope = this.aiScope;
+    this.question = ''; this.aiScope = undefined; this.error = ''; this.notice = '';
+    await this.assistant.send(question, scope);
+  }
+
+  private startAssistantEntry(request: AssistantEntryRequest): void {
+    this.aiEntryOpen = false; this.question = request.question; this.aiScope = request.scope;
+    this.askAI();
   }
 
   private async setupAssistant(): Promise<void> {
     this.aiLinkGeneration++;
     await this.assistant?.cancel();
     this.assistant?.dispose(); this.aiReady = false;
-    this.assistant = new AssistantController(new ServiceConversationStore(this.core()),
+    this.aiVisibleCount = 40; this.chatSignature = '';
+    const store = new ServiceConversationStore(this.core(), (history: AssistantHistory) => {
+      if (!this.alive) { return; }
+      this.aiHistory = history;
+      const chat = history.chats.find((item) => item.id === history.activeId);
+      this.question = chat === undefined ? history.draft : chat.draft;
+      this.aiScope = chat === undefined ? history.draftScope : chat.draftScope;
+    }, (history: AssistantHistory) => { if (this.alive && this.aiConversationStore === store) { this.aiHistory = history; } });
+    this.aiConversationStore = store;
+    this.assistant = new AssistantController(store,
       () => {
         if (this.aiConfig === null) { throw new Error('请先填写接口 URL、API Key 和模型名称'); }
         return new NativeAssistantRunner(this.core(), this.aiConfig);
@@ -567,16 +591,72 @@ export struct NativeApp {
     await this.assistant.load();
   }
 
+  private async saveAssistantDraft(): Promise<void> {
+    clearTimeout(this.aiDraftTimer);
+    if (this.preview || this.service === null || this.aiConversationStore === null) { return; }
+    await this.core().saveAssistantDraft(this.aiConversationStore.conversationId(), this.question, this.aiScope);
+  }
+
+  private draftChanged(): void {
+    clearTimeout(this.aiDraftTimer);
+    this.aiDraftTimer = setTimeout(() => {
+      this.saveAssistantDraft().catch(() => { if (this.alive) { this.error = '未发送的内容暂未保存，请重试'; } });
+    }, 400);
+  }
+
+  private async openAssistantHistory(): Promise<void> {
+    if (this.aiSwitching || this.busy) { return; }
+    if (this.preview) { this.open('aiHistory'); return; }
+    this.aiSwitching = true;
+    this.getUIContext().getFocusController().clearFocus(); this.aiEditing = false;
+    try {
+      await this.assistant?.cancel(); await this.saveAssistantDraft();
+      const history = await this.core().loadAssistantHistory();
+      if (this.alive) { this.aiHistory = history; this.aiSwitching = false; this.open('aiHistory'); }
+    } catch (error) { if (this.alive) { this.error = readable(error); } }
+    finally { if (this.alive) { this.aiSwitching = false; } }
+  }
+
+  private async switchAssistantChat(id: string): Promise<void> {
+    if (this.aiSwitching || this.busy || this.preview) { return; }
+    this.aiSwitching = true; this.aiLinkGeneration++;
+    this.getUIContext().getFocusController().clearFocus(); this.aiEditing = false;
+    try {
+      await this.assistant?.cancel(); await this.saveAssistantDraft();
+      await this.core().activateAssistantChat(id);
+      if (!this.alive) { return; }
+      await this.setupAssistant();
+      if (this.paths.getAllPathName().slice(-1)[0] === 'aiHistory') { this.paths.pop(); }
+      this.scrollChat();
+    } catch (error) { if (this.alive) { this.error = readable(error); } }
+    finally { if (this.alive) { this.aiSwitching = false; } }
+  }
+
   private scrollChat(): void {
     clearTimeout(this.aiScrollTimer);
+    let answerIndex = this.chatLines.length - 1;
+    while (answerIndex >= 0 && this.chatLines[answerIndex].user) { answerIndex--; }
+    if (answerIndex < 0) { answerIndex = this.chatLines.length - 1; }
+    if (answerIndex >= 0) { this.aiVisibleCount = Math.max(this.aiVisibleCount, this.chatLines.length - answerIndex); }
     this.aiScrollTimer = setTimeout(() => {
-      if (this.alive && assistantVisible(this.tab, this.paths.getAllPathName())) { try { this.aiScroller.scrollEdge(Edge.Bottom); } catch (_) {} }
+      if (this.alive && assistantVisible(this.tab, this.paths.getAllPathName())) {
+        try {
+          if (answerIndex < 0) { this.aiScroller.scrollEdge(Edge.Top); }
+          else {
+            const hidden = Math.max(0, this.chatLines.length - this.aiVisibleCount);
+            this.aiScroller.scrollToIndex(answerIndex - hidden + (hidden > 0 ? 1 : 0), false, ScrollAlign.START);
+          }
+        } catch (_) {}
+      }
     }, 60);
   }
 
   private clearConversation(): void {
-    this.getUIContext().showAlertDialog({ title: '清空聊天记录？', message: '本机聊天内容将清空，人物、关系和事件保留。已有备份文件不受影响。',
-      primaryButton: { value: '取消', action: () => {} }, secondaryButton: { value: '清空聊天', action: () => { this.aiLinkGeneration++; this.question = ''; this.assistant?.clear(); } } });
+    this.getUIContext().showAlertDialog({ title: '删除这段聊天？', message: '仅删除这段聊天及其消息。其他聊天、人物和经历记录会保留。',
+      primaryButton: { value: '取消', fontColor: this.colors.text, action: () => {} },
+      secondaryButton: { value: '删除聊天', fontColor: this.colors.danger, action: () => {
+        clearTimeout(this.aiDraftTimer); this.aiLinkGeneration++; this.question = ''; this.aiScope = undefined; this.assistant?.clear();
+      } } });
   }
 
   private async copyAnswer(text: string): Promise<void> {
@@ -650,6 +730,7 @@ export struct NativeApp {
     this.backupMessage = '正在校验并恢复记录…';
     await this.mutate(async (): Promise<void> => {
       await this.assistant?.cancel();
+      clearTimeout(this.aiDraftTimer);
       await this.backup().restore(uri);
       this.files = new MediaFiles(this.getUIContext().getHostContext() as common.UIAbilityContext);
       this.graphImages = new Map<string, string>(); this.graphRelationIds = []; this.graphBranchIds = [];
@@ -1038,18 +1119,50 @@ export struct NativeApp {
   }
 
   @Builder
+  aiEntrySheet() {
+    AssistantEntrySheet({ kind: this.aiEntryKind, people: this.data.persons, selfId: this.data.profile.defaultPersonId, palette: this.colors,
+      onClose: () => { this.aiEntryOpen = false; }, onStart: (request: AssistantEntryRequest) => this.startAssistantEntry(request) })
+  }
+
+  @Builder
+  aiEntry(label: string, icon: Resource, kind: string) {
+    Button({ type: ButtonType.Normal }) {
+      Row({ space: 16 }) {
+        Image(icon).width(22).height(22).fillColor(this.colors.primary)
+        Text(label).fontSize(16).fontColor(this.colors.text).layoutWeight(1).textAlign(TextAlign.Start)
+        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(14).fontColor([this.colors.muted])
+      }.width('100%')
+    }.width('100%').height(62).padding({ left: 2, right: 2 }).borderRadius(0).backgroundColor(Color.Transparent)
+      .border({ width: { bottom: 1 }, color: this.colors.border }).enabled(this.aiReady && !this.aiBusy && !this.aiSwitching && !this.busy)
+      .id('ai-entry-' + kind).accessibilityText(label).onClick(() => { this.aiEntryKind = kind; this.aiEntryOpen = true; })
+  }
+
+  @Builder
   aiPage() {
-    Column({ space: 12 }) {
-      Row({ space: 6 }) {
-        Button('使用说明').fontSize(12).fontColor(this.colors.primary).backgroundColor(this.colors.soft).enabled(this.aiReady && !this.aiBusy)
-          .id('ai-help').onClick(() => this.assistant?.showHelp())
-        Button('服务设置').fontSize(12).fontColor(this.colors.primary).backgroundColor(Color.Transparent).enabled(!this.aiBusy && !this.busy)
-          .id('ai-service-settings').onClick(() => this.openAISettings())
+    Column({ space: 8 }) {
+      Row() {
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 8 }) {
+            SymbolGlyph($r('sys.symbol.clock')).fontSize(18).fontColor([this.colors.primary])
+            Text('历史聊天').fontSize(14).fontColor(this.colors.text)
+          }
+        }.height(44).padding({ left: 0, right: 12 }).backgroundColor(Color.Transparent)
+          .enabled(!this.busy && !this.aiSwitching).id('ai-history').onClick(() => this.openAssistantHistory())
         Blank()
-        Button('清空').fontSize(12).fontColor(this.colors.muted).backgroundColor(Color.Transparent).enabled(!this.busy && (this.aiReady || this.aiError.length > 0))
-          .id('ai-clear').onClick(() => this.clearConversation())
+        Button('＋ 新聊天', { type: ButtonType.Normal }).height(44).fontSize(14).padding({ left: 12, right: 0 })
+          .backgroundColor(Color.Transparent).fontColor(this.chatLines.length > 0 || this.aiHistory.activeId.length > 0 ? this.colors.primary : this.colors.muted)
+          .enabled(!this.busy && !this.aiSwitching && (this.chatLines.length > 0 || this.aiHistory.activeId.length > 0))
+          .id('ai-new-chat').onClick(() => this.switchAssistantChat(''))
+      }.width('100%').flexShrink(0)
+      if (!this.aiConfigured) {
+        Button({ type: ButtonType.Normal }) {
+          Row() {
+            Text('连接 AI 服务后，即可开始').fontSize(13).fontColor(this.colors.primary).layoutWeight(1).textAlign(TextAlign.Start)
+            SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(13).fontColor([this.colors.primary])
+          }.width('100%')
+        }.width('100%').height(44).borderRadius(12).backgroundColor(this.colors.soft).padding({ left: 14, right: 14 })
+          .enabled(!this.aiBusy && !this.busy).id('ai-connect-service').onClick(() => this.openAISettings())
       }
-      if (this.aiConfigured) { Text('当前模型：' + this.aiModelLabel).fontSize(12).fontColor(this.colors.muted).width('100%') }
       if (this.aiError.length > 0) { Text(this.aiError).fontSize(13).fontColor(this.colors.danger).width('100%').copyOption(CopyOptions.LocalDevice) }
       List({ space: 14, scroller: this.aiScroller }) {
         if (this.chatLines.length > this.aiVisibleCount) {
@@ -1060,40 +1173,61 @@ export struct NativeApp {
         }
         if (this.chatLines.length === 0) {
           ListItem() {
-            Column({ space: 14 }) {
-              this.empty('查找或梳理你的记录', '输入人物、时间或记得的片段。关系分析只给建议。')
-              ForEach(['总结我和某人的共同经历，分析我们的关系', '找一找那次不太愉快的聚餐', '最近三个月有哪些开心的事？'], (text: string) => {
-                Button(text, { type: ButtonType.Normal }).fontSize(13).fontColor(this.colors.primary).backgroundColor(Color.Transparent).width('100%').height(40)
-                  .borderRadius(0).border({ width: { bottom: 1 }, color: this.colors.border })
-                  .onClick(() => { this.question = text; })
-              })
-              if (!this.aiConfigured) { Text('在服务设置中填写 URL、API Key 和模型名称后即可查询；使用说明可直接在本机阅读。').fontSize(12).fontColor(this.colors.muted) }
-            }.width('100%').padding({ bottom: 12 })
+            Column({ space: 8 }) {
+              Text('想回顾哪段经历？').fontSize(24).fontWeight(FontWeight.Medium).fontColor(this.colors.text).width('100%')
+              Text('找回共同经历，回顾关系变化。').fontSize(14).fontColor(this.colors.muted).width('100%')
+              Column() {
+                this.aiEntry('回顾共同经历', $r('app.media.nav_people'), 'together')
+                this.aiEntry('找一段往事', $r('app.media.nav_search'), 'memory')
+                this.aiEntry('看看最近的生活', $r('app.media.nav_records'), 'recent')
+              }.width('100%').margin({ top: 20 })
+            }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: 28, bottom: 12 })
           }
         }
         ForEach(this.chatLines.slice(-this.aiVisibleCount), (line: AssistantTurn) => {
           ListItem() {
             AssistantBubble({ turn: line, palette: this.colors, onCopy: (text: string) => this.copyAnswer(text),
-              onRetry: (text: string) => { if (!this.aiBusy) { this.question = text; } },
+              onRetry: (text: string) => { if (!this.aiBusy && !this.aiSwitching) { this.question = text; this.aiScope = line.scope; this.draftChanged(); } },
               onLink: (url: string, refs: AssistantReference[]) => this.assistantLink(url, refs) })
           }
         }, (line: AssistantTurn) => line.id + ':' + line.status)
         if (this.aiBusy) { ListItem() { Text(this.aiStatus || '正在查询你的生活记录…').fontSize(14).fontColor(this.colors.muted).padding(12) } }
       }.width('100%').layoutWeight(1)
-      Row({ space: 8 }) {
-        TextInput({ text: this.question, placeholder: '想了解自己的哪段生活？' }).layoutWeight(1).fontColor(this.colors.text).backgroundColor(this.colors.card).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
-          .id('ai-question').maxLength(6000)
-          .enabled(!this.aiBusy && this.aiReady).onChange((value: string) => { this.question = value; }).onSubmit(() => this.askAI())
-        if (this.aiBusy) {
-          Button('停止').backgroundColor(this.colors.soft).fontColor(this.colors.text).id('ai-stop').onClick(() => this.assistant?.cancel())
-        } else {
-          Button('发送').backgroundColor(this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.primary : this.colors.soft)
-            .fontColor(this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.onPrimary : this.colors.muted)
-            .enabled(this.aiReady && !this.busy && this.question.trim().length > 0)
-            .id('ai-send').onClick(() => this.askAI())
-        }
-      }
+      Column({ space: 2 }) {
+        Row() {
+          Button('AI 服务', { type: ButtonType.Normal }).fontSize(12).height(24).padding({ left: 2, right: 12, top: 0, bottom: 0 })
+            .fontColor(this.colors.muted).backgroundColor(Color.Transparent).enabled(!this.aiBusy && !this.aiSwitching && !this.busy)
+            .id('ai-service-settings').onClick(() => this.openAISettings())
+          Blank()
+          if (this.chatLines.length > 0 || this.aiError.length > 0) {
+            Button('删除聊天', { type: ButtonType.Normal }).fontSize(12).height(24).padding({ left: 12, right: 2, top: 0, bottom: 0 })
+              .fontColor(this.colors.muted).backgroundColor(Color.Transparent).enabled(!this.busy && !this.aiSwitching && (this.aiReady || this.aiError.length > 0))
+              .id('ai-clear').onClick(() => this.clearConversation())
+          }
+        }.width('100%').height(24)
+        Row({ space: 8 }) {
+          TextInput({ text: this.question, placeholder: this.chatLines.length > 0 ? '继续这段聊天…' : '输入人物、时间或记得的片段…' }).layoutWeight(1).height(48).fontSize(15)
+            .fontColor(this.colors.text).backgroundColor(Color.Transparent).placeholderColor(this.colors.muted).caretColor(this.colors.primary)
+            .id('ai-question').maxLength(6000).enterKeyType(EnterKeyType.Send)
+            .enabled(!this.aiBusy && !this.aiSwitching && this.aiReady).onChange((value: string) => {
+              if (value !== this.question) { this.aiScope = undefined; this.question = value; this.draftChanged(); }
+            })
+            .onEditChange((editing: boolean) => { this.aiEditing = editing; }).onSubmit(() => this.askAI())
+          if (this.aiBusy) {
+            Button('停止').backgroundColor(this.colors.soft).fontColor(this.colors.text).id('ai-stop').onClick(() => this.assistant?.cancel())
+          } else {
+            Button({ type: ButtonType.Circle }) {
+              SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(18)
+                .fontColor([this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.onPrimary : this.colors.muted])
+            }.width(36).height(36).padding(0).backgroundColor(this.aiReady && !this.busy && this.question.trim().length > 0 ? this.colors.primary : this.colors.soft)
+              .enabled(this.aiReady && !this.busy && !this.aiSwitching && this.question.trim().length > 0)
+              .id('ai-send').accessibilityText('发送').onClick(() => this.askAI())
+          }
+        }.padding({ right: 6 }).width('100%').height(48).flexShrink(0).backgroundColor(this.colors.card).borderRadius(24)
+      }.width('100%').flexShrink(0)
     }.width('100%').layoutWeight(1)
+      .bindSheet($$this.aiEntryOpen, this.aiEntrySheet, { height: SheetSize.FIT_CONTENT, showClose: false, dragBar: true,
+        backgroundColor: this.colors.paper, maskColor: '#66000000', enableOutsideInteractive: false })
   }
 
   @Builder
@@ -1200,9 +1334,11 @@ export struct NativeApp {
     NavDestination() {
       Column() {
         Column({ space: 16 }) {
-          PageHeading({ title: routeTitle(name, this.tagKind), palette: this.colors, showBack: true,
-            showAdd: name === 'people' || name === 'events', disabled: this.busy,
-            onBackAction: () => this.goBack(), onAddAction: () => { if (name === 'people') { this.editPerson(); } else { this.editEvent(); } } })
+          if (name !== 'aiHistory') {
+            PageHeading({ title: routeTitle(name, this.tagKind), palette: this.colors, showBack: true,
+              showAdd: name === 'people' || name === 'events', disabled: this.busy,
+              onBackAction: () => this.goBack(), onAddAction: () => { if (name === 'people') { this.editPerson(); } else { this.editEvent(); } } })
+          }
           this.feedback()
           if (name === 'people') { this.peopleList() }
           else if (name === 'person') { this.personDetail((param as RouteParam).id) }
@@ -1227,6 +1363,16 @@ export struct NativeApp {
             }.layoutWeight(1).width('100%').clip(true).onClick(() => { this.imageScale = 1; this.imageBaseScale = 1; })
           }
           else if (name === 'ai') { this.aiPage() }
+          else if (name === 'aiHistory') {
+            AssistantHistoryPage({ chats: this.aiHistory.chats, activeId: this.aiHistory.activeId, disabled: this.aiSwitching,
+              palette: this.colors, onBack: () => { this.goBack(); }, onNew: () => this.switchAssistantChat(''),
+              onSelect: (id: string) => this.switchAssistantChat(id), onSearch: (query: string) => this.core().searchAssistantChats(query) })
+          }
+          else if (name === 'aiSettings') {
+            AIServicePage({ previous: this.aiConfig, initialError: this.aiSettingsError, palette: this.colors,
+              onSave: (url: string, key: string, model: string, remember: boolean) => this.saveAIConfig(url, key, model, remember),
+              onSaved: () => { this.goBack(); } })
+          }
           else if (name === 'backup') { this.backupPage() }
           else if (name === 'profile') { this.profilePage() }
         }.width('100%').height(editorDestination(name) ? '94%' : '100%')
@@ -1253,19 +1399,21 @@ export struct NativeApp {
           else if (this.tab === MainTab.People) { this.peopleList() }
           else { this.aiPage() }
         } else { Blank() }
-        Row({ space: 3 }) {
-          MainTabButton({ label: '图谱', icon: $r('app.media.nav_graph'), selected: this.tab === MainTab.Graph, palette: this.colors,
-            disabled: !this.ready || this.busy, controlId: 'tab-graph', onAction: () => this.selectTab(MainTab.Graph) }).layoutWeight(1)
-          MainTabButton({ label: '记录', icon: $r('app.media.nav_records'), selected: this.tab === MainTab.Records, palette: this.colors,
-            disabled: !this.ready || this.busy, controlId: 'tab-records', onAction: () => this.selectTab(MainTab.Records) }).layoutWeight(1)
-          Button('＋', { type: ButtonType.Normal }).fontSize(28).width(50).height(50).padding(0).borderRadius(12)
-            .backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).margin({ left: 6, right: 6 })
-            .id('quick-add-event').accessibilityText('新建事件').enabled(this.ready && !this.busy).onClick(() => this.editEvent())
-          MainTabButton({ label: '人物', icon: $r('app.media.nav_people'), selected: this.tab === MainTab.People, palette: this.colors,
-            disabled: !this.ready || this.busy, controlId: 'tab-people', onAction: () => this.selectTab(MainTab.People) }).layoutWeight(1)
-          MainTabButton({ label: '助手', icon: $r('app.media.nav_assistant'), selected: this.tab === MainTab.Assistant, palette: this.colors,
-            disabled: !this.ready || this.busy, controlId: 'tab-assistant', onAction: () => this.selectTab(MainTab.Assistant) }).layoutWeight(1)
-        }.width('100%').padding({ top: 6, bottom: 2 }).border({ width: { top: 1 }, color: this.colors.border })
+        if (this.tab !== MainTab.Assistant || !this.aiEditing) {
+          Row({ space: 3 }) {
+            MainTabButton({ label: '图谱', icon: $r('app.media.nav_graph'), selected: this.tab === MainTab.Graph, palette: this.colors,
+              disabled: !this.ready || this.busy, controlId: 'tab-graph', onAction: () => this.selectTab(MainTab.Graph) }).layoutWeight(1)
+            MainTabButton({ label: '记录', icon: $r('app.media.nav_records'), selected: this.tab === MainTab.Records, palette: this.colors,
+              disabled: !this.ready || this.busy, controlId: 'tab-records', onAction: () => this.selectTab(MainTab.Records) }).layoutWeight(1)
+            Button('＋', { type: ButtonType.Normal }).fontSize(28).width(50).height(50).padding(0).borderRadius(12)
+              .backgroundColor(this.colors.primary).fontColor(this.colors.onPrimary).margin({ left: 6, right: 6 })
+              .id('quick-add-event').accessibilityText('新建事件').enabled(this.ready && !this.busy).onClick(() => this.editEvent())
+            MainTabButton({ label: '人物', icon: $r('app.media.nav_people'), selected: this.tab === MainTab.People, palette: this.colors,
+              disabled: !this.ready || this.busy, controlId: 'tab-people', onAction: () => this.selectTab(MainTab.People) }).layoutWeight(1)
+            MainTabButton({ label: '助手', icon: $r('app.media.nav_assistant'), selected: this.tab === MainTab.Assistant, palette: this.colors,
+              disabled: !this.ready || this.busy, controlId: 'tab-assistant', onAction: () => this.selectTab(MainTab.Assistant) }).layoutWeight(1)
+          }.width('100%').padding({ top: 6, bottom: 2 }).border({ width: { top: 1 }, color: this.colors.border })
+        }
       }.width('100%').height('100%').padding({ top: 16, left: 20, right: 20, bottom: 8 }).backgroundColor(this.colors.paper)
     }.hideTitleBar(true).navDestination(this.destination).mode(NavigationMode.Stack).width('100%').height('100%')
   }
@@ -1297,6 +1445,8 @@ function routeTitle(name: string, kind: string): string {
   if (name === 'branchGraph') { return '生活分支图谱'; }
   if (name === 'image') { return '图片'; }
   if (name === 'ai') { return 'AI 生活助手'; }
+  if (name === 'aiHistory') { return '历史聊天'; }
+  if (name === 'aiSettings') { return 'AI 服务'; }
   if (name === 'backup') { return '本地备份与恢复'; }
   if (name === 'profile') { return '我的'; }
   if (name === 'tags') { return kind === 'relations' ? '关系类型' : (kind === 'branches' ? '生活分支' : '情绪标签'); }
