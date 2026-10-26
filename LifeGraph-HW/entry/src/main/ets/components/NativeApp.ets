@@ -11,7 +11,7 @@ import { ApplicationRuntime } from '../runtime/ApplicationRuntime';
 import { PeoplePageController } from './PeoplePageController';
 import { NativeGraph } from './NativeGraph';
 import { buildGraph } from '../features/GraphData';
-import { findEvents, formatBytes } from '../features/EventQuery';
+import { findEvents, formatBytes, groupTimelineEvents, timelineEvents, TimelineEventGroup, TimelineGrain } from '../features/EventQuery';
 import { MediaFiles } from '../data/MediaFiles';
 import { VoiceRecorder } from '../data/VoiceRecorder';
 import { EventAttachments } from './EventAttachments';
@@ -34,6 +34,7 @@ import { ActionButton } from './ActionButton';
 import { PageHeading } from './PageHeading';
 import { MainTabButton } from './MainTabButton';
 import { FilterTab } from './FilterTab';
+import { TimelineGroupSection } from './TimelineGroupSection';
 import { MainTab, assistantVisible, mainTitle, editorDestination } from '../features/MainNavigation';
 import { NativeBackup } from '../data/NativeBackup';
 
@@ -76,6 +77,12 @@ export struct NativeApp {
   @State branchIds: string[] = [];
   @State emotionIds: string[] = [];
   @State filterBranchIds: string[] = [];
+  @State timelineGrain: string = 'month';
+  @State timelinePersonId: string = '';
+  @State timelineAscending: boolean = false;
+  @State timelineCollapsedGroupKeys: string[] = [];
+  @State timelineExpandedEventIds: string[] = [];
+  @State timelineFoldInitialized: boolean = false;
   @State tagKind: string = 'relations';
   @State tagId: string = '';
   @State tagName: string = '';
@@ -136,7 +143,7 @@ export struct NativeApp {
     ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } this.pauseAssistant(); };
     this.preview = ApplicationRuntime.useVisualPreview(this.forcePreview);
     if (this.preview) {
-      this.data = this.previewData; this.themeChanged(); this.ready = true; this.aiReady = true;
+      this.data = this.previewData; this.themeChanged(); this.ready = true; this.aiReady = true; this.resetTimelineFolds();
       if (this.previewRoute === 'personEditor') { this.editPerson(); }
       else if (this.previewRoute === 'eventEditor') { this.editEvent(); }
       else if (this.previewRoute.length > 0) { this.open(this.previewRoute); }
@@ -183,9 +190,13 @@ export struct NativeApp {
     this.filterBranchIds = this.filterBranchIds.filter((id: string) => data.branches.some((item: NamedItem) => item.id === id));
     this.graphBranchIds = this.graphBranchIds.filter((id: string) => data.branches.some((item: NamedItem) => item.id === id));
     this.graphRelationIds = this.graphRelationIds.filter((id: string) => data.relations.some((item: NamedItem) => item.id === id));
+    if (this.timelinePersonId.length > 0 && !data.persons.some((person: Person) => person.id === this.timelinePersonId && person.deletedAt === null)) {
+      this.timelinePersonId = '';
+    }
     this.relationInputs = this.relationInputs.filter((item: RelationEditorItem) => item.relationId.length === 0 || data.relations.some((relation: NamedItem) => relation.id === item.relationId));
     this.themeChanged();
     this.prepareGraphImages(data);
+    if (!this.timelineFoldInitialized) { this.resetTimelineFolds(); }
   }
 
   private themeChanged(): void {
@@ -286,6 +297,65 @@ export struct NativeApp {
   }
   private events(global: boolean = false): EventCard[] {
     return findEvents(this.data, global ? this.search : this.eventSearch, global ? [] : this.filterBranchIds);
+  }
+
+  private timelinePeople(): Person[] {
+    return this.data.persons.filter((person: Person) => person.deletedAt === null && person.id !== this.data.profile.defaultPersonId);
+  }
+
+  private timelinePersonOptions(): SelectOption[] {
+    return [{ value: '我的全部经历' }, ...this.timelinePeople().map((person: Person): SelectOption => ({ value: '与' + person.name + '的共同经历' }))];
+  }
+
+  private timelinePersonIndex(): number {
+    if (this.timelinePersonId.length === 0) { return 0; }
+    const index = this.timelinePeople().findIndex((person: Person) => person.id === this.timelinePersonId);
+    return index < 0 ? 0 : index + 1;
+  }
+
+  private timelinePersonLabel(): string {
+    if (this.timelinePersonId.length === 0) { return '我的全部'; }
+    const person = this.person(this.timelinePersonId);
+    return person === undefined ? '我的全部' : '与' + person.name;
+  }
+
+  private timelineCards(ascending: boolean = this.timelineAscending): EventCard[] {
+    return timelineEvents(this.data, { query: this.eventSearch, branchIds: this.filterBranchIds,
+      personId: this.timelinePersonId, grain: this.timelineGrain as TimelineGrain, ascending: ascending });
+  }
+
+  private timelineGroups(): TimelineEventGroup[] {
+    return groupTimelineEvents(this.timelineCards(), this.timelineGrain as TimelineGrain);
+  }
+
+  private timelineScaleLabel(): string {
+    return '按月展开';
+  }
+
+  private setTimelinePerson(selected: number): void {
+    const people = this.timelinePeople();
+    this.timelinePersonId = selected <= 0 || people[selected - 1] === undefined ? '' : people[selected - 1].id;
+    this.timelineExpandedEventIds = []; this.resetTimelineFolds();
+  }
+
+  private toggleTimelineOrder(): void {
+    this.timelineAscending = !this.timelineAscending; this.timelineExpandedEventIds = []; this.resetTimelineFolds();
+  }
+
+  private toggleTimelineGroup(key: string): void {
+    this.timelineCollapsedGroupKeys = this.timelineCollapsedGroupKeys.includes(key) ?
+      this.timelineCollapsedGroupKeys.filter((item: string) => item !== key) : [...this.timelineCollapsedGroupKeys, key];
+  }
+
+  private toggleTimelineEvent(id: string): void {
+    this.timelineExpandedEventIds = this.timelineExpandedEventIds.includes(id) ?
+      this.timelineExpandedEventIds.filter((item: string) => item !== id) : [...this.timelineExpandedEventIds, id];
+  }
+
+  private resetTimelineFolds(): void {
+    const groups = groupTimelineEvents(this.timelineCards(), this.timelineGrain as TimelineGrain);
+    this.timelineCollapsedGroupKeys = groups.slice(1).map((group: TimelineEventGroup) => group.key);
+    this.timelineFoldInitialized = true;
   }
 
   private eventRowKey(card: EventCard): string {
@@ -778,7 +848,10 @@ export struct NativeApp {
   peopleList() {
     Column({ space: 16 }) {
       Search({ value: this.peopleSearch, placeholder: '搜索姓名或描述' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
-        .id('people-search').onChange((value: string) => { this.peopleSearch = value; })
+        .id('people-search')
+        .onFocus(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE))
+        .onBlur(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE))
+        .onChange((value: string) => { this.peopleSearch = value; })
       Text((this.peopleSearch.trim().length > 0 ? '找到 ' : '共 ') + this.people().length + ' 位人物').fontSize(12).fontColor(this.colors.muted).width('100%')
       if (this.people().length === 0) {
         this.empty(this.peopleSearch.trim().length > 0 ? '没有找到人物' : '还没有人物', this.peopleSearch.trim().length > 0 ? '试试其他姓名或描述。' : '添加姓名，也可以稍后补充关系。')
@@ -895,19 +968,59 @@ export struct NativeApp {
 
   @Builder
   eventsList() {
-    Column({ space: 14 }) {
+    Column({ space: 10 }) {
       Search({ value: this.eventSearch, placeholder: '搜索生活记录' }).backgroundColor(this.colors.card).borderRadius(10).fontColor(this.colors.text).placeholderColor(this.colors.muted).searchIcon({ color: this.colors.muted })
-        .id('events-search').onChange((value: string) => { this.eventSearch = value; })
+        .id('events-search')
+        .onFocus(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE))
+        .onBlur(() => this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE))
+        .onChange((value: string) => { this.eventSearch = value; this.timelineExpandedEventIds = []; this.resetTimelineFolds(); })
+      Row({ space: 8 }) {
+        Text('按月展开').fontSize(12).fontColor(this.colors.primary).layoutWeight(1)
+          .padding({ left: 12, right: 12, top: 9, bottom: 9 }).backgroundColor(this.colors.soft).borderRadius(10)
+        Select(this.timelinePersonOptions()).selected(this.timelinePersonIndex()).value(this.timelinePersonLabel())
+          .fontColor(this.colors.text).backgroundColor(this.colors.card)
+          .optionFontColor(this.colors.text).optionBgColor(this.colors.card)
+          .selectedOptionFontColor(this.colors.onPrimary).selectedOptionBgColor(this.colors.primary)
+          .constraintSize({ minWidth: 112, maxWidth: 150 }).id('timeline-person')
+          .onSelect((selected: number) => this.setTimelinePerson(selected))
+        Button(this.timelineAscending ? '↑' : '↓', { type: ButtonType.Normal }).width(38).height(38).padding(0).fontSize(20)
+          .fontColor(this.colors.primary).backgroundColor(this.colors.soft).borderRadius(10)
+          .accessibilityText(this.timelineAscending ? '当前最早在上，点按改为最近在上' : '当前最近在上，点按改为最早在上')
+          .id('timeline-order').onClick(() => this.toggleTimelineOrder())
+      }.width('100%').alignItems(VerticalAlign.Center)
       Scroll() {
         Row({ space: 20 }) {
-          FilterTab({ label: '全部', selected: this.filterBranchIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'event-filter-all', onAction: () => { this.filterBranchIds = []; } })
-          ForEach(this.data.branches, (item: NamedItem) => { FilterTab({ label: item.name, selected: this.filterBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'event-filter-' + item.id, onAction: () => { this.filterBranchIds = toggled(this.filterBranchIds, item.id); } }) }, (item: NamedItem) => item.id)
+          FilterTab({ label: '全部', selected: this.filterBranchIds.length === 0, palette: this.colors, disabled: this.busy, controlId: 'event-filter-all', onAction: () => { this.filterBranchIds = []; this.timelineExpandedEventIds = []; this.resetTimelineFolds(); } })
+          ForEach(this.data.branches, (item: NamedItem) => { FilterTab({ label: item.name, selected: this.filterBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'event-filter-' + item.id, onAction: () => { this.filterBranchIds = toggled(this.filterBranchIds, item.id); this.timelineExpandedEventIds = []; this.resetTimelineFolds(); } }) }, (item: NamedItem) => item.id)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
-      if (this.events().length === 0) { this.empty(this.eventSearch.trim().length > 0 || this.filterBranchIds.length > 0 ? '没有找到记录' : '还没有生活记录', '点底部的＋记一件事，或调整搜索与筛选。') }
-      List({ space: 0 }) {
-        ForEach(this.events(), (card: EventCard) => { ListItem() { this.eventRow(card) } }, (card: EventCard) => this.eventRowKey(card))
-      }.width('100%').layoutWeight(1)
+      Row() {
+        Text((this.timelinePersonId.length > 0 ? this.timelinePersonLabel() + ' · ' : '') + this.timelineScaleLabel())
+          .fontSize(12).fontWeight(FontWeight.Medium).fontColor(this.colors.text).layoutWeight(1)
+        Text((this.timelineAscending ? '最早在上' : '最近在上') + ' · ' + this.timelineCards().length + ' 件事')
+          .fontSize(11).fontColor(this.colors.muted)
+      }.width('100%')
+      if (this.timelineCards().length === 0) {
+        if (this.eventSearch.trim().length > 0 || this.filterBranchIds.length > 0 || this.timelinePersonId.length > 0) {
+          this.empty('没有找到记录', '试试其他关键词、人物或生活分支。')
+          Button('清除筛选').fontSize(13).fontColor(this.colors.primary).backgroundColor(this.colors.soft)
+            .onClick(() => { this.eventSearch = ''; this.filterBranchIds = []; this.timelinePersonId = ''; this.resetTimelineFolds(); })
+        } else {
+          this.empty('从一件小事开始', '点底部的＋记一件事，时间会慢慢长成自己的枝干。')
+        }
+      } else {
+        List({ space: 6 }) {
+          ForEach(this.timelineGroups(), (group: TimelineEventGroup) => {
+            ListItem() {
+              TimelineGroupSection({ group: group, palette: this.colors, people: this.data.persons, branches: this.data.branches,
+                emotions: this.data.emotions, expanded: !this.timelineCollapsedGroupKeys.includes(group.key),
+                expandedEventIds: this.timelineExpandedEventIds, disabled: this.busy,
+                onToggleGroup: (key: string) => this.toggleTimelineGroup(key), onToggleEvent: (id: string) => this.toggleTimelineEvent(id),
+                onOpenEvent: (id: string) => this.open('event', id) })
+            }
+          }, (group: TimelineEventGroup) => group.key + ':' + group.events.map((card: EventCard) => this.eventRowKey(card)).join(','))
+        }.width('100%').layoutWeight(1).edgeEffect(EdgeEffect.Spring)
+      }
     }.width('100%').layoutWeight(1)
   }
 
