@@ -1,0 +1,19 @@
+{
+  "forms": [
+    {
+      "name": "RelationshipCard",
+      "displayName": "$string:relationship_card_name",
+      "description": "$string:relationship_card_description",
+      "src": "./ets/widget/pages/RelationshipCard.ets",
+      "uiSyntax": "arkts",
+      "window": { "designWidth": 360, "autoDesignWidth": true },
+      "isDefault": true,
+      "isDynamic": true,
+      "colorMode": "auto",
+      "supportDimensions": ["2*2"],
+      "defaultDimension": "2*2",
+      "updateEnabled": true,
+      "updateDuration": 1
+    }
+  ]
+}

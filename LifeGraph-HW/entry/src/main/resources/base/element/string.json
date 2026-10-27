@@ -1,5 +1,7 @@
 {
   "string": [
+    { "name": "relationship_card_name", "value": "关系微图" },
+    { "name": "relationship_card_description", "value": "回看与重要之人的共同经历，快速记下一件事" },
     { "name": "microphone_reason", "value": "用于录制并保存你的生活语音记录" },
     {
       "name": "module_desc",

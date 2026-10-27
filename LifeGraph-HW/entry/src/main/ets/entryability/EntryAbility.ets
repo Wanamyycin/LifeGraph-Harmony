@@ -5,6 +5,7 @@ import { ApplicationRuntime } from '../runtime/ApplicationRuntime';
 import { AppServices } from '../application/AppServices';
 import { ColorModeController } from '../runtime/ColorModeController';
 import { Palette, ProfileConfig, paletteFor } from '../domain/Models';
+import { CardLaunch } from '../features/DesktopCard';
 
 const DOMAIN = 0x0000;
 
@@ -16,15 +17,25 @@ export default class EntryAbility extends UIAbility {
   });
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     ApplicationRuntime.start();
+    this.acceptCardWant(want);
     AppStorage.setOrCreate('nativeSystemDark', this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
 
   onDestroy(): void {
+    CardLaunch.clear();
     ApplicationRuntime.stop();
     ApplicationRuntime.onColors = null;
     AppServices.close().catch((error: Error) => { hilog.error(DOMAIN, 'LifeGraph', '%{public}s', error.message); });
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
+  }
+
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void { this.acceptCardWant(want); }
+
+  private acceptCardWant(want: Want): void {
+    const action = want.parameters?.['cardAction'];
+    const personId = want.parameters?.['cardPersonId'];
+    if (typeof action === 'string') { CardLaunch.request(action, typeof personId === 'string' ? personId : ''); }
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {

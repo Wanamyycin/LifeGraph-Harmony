@@ -20,6 +20,7 @@
     "abilities": [
       {
         "name": "EntryAbility",
+        "launchType": "singleton",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
         "icon": "$media:layered_image",
@@ -40,6 +41,13 @@
       }
     ],
     "extensionAbilities": [
+      {
+        "name": "RelationshipFormAbility",
+        "srcEntry": "./ets/cardability/RelationshipFormAbility.ets",
+        "type": "form",
+        "exported": false,
+        "metadata": [{ "name": "ohos.extension.form", "resource": "$profile:form_config" }]
+      },
       {
         "name": "EntryBackupAbility",
         "srcEntry": "./ets/entrybackupability/EntryBackupAbility.ets",

@@ -1,5 +1,8 @@
 {
   "color": [
+    { "name": "card_paper", "value": "#222D27" },
+    { "name": "card_ink", "value": "#E6ECE2" },
+    { "name": "card_muted", "value": "#A4B1A5" },
     {
       "name": "start_window_background",
       "value": "#222D27"

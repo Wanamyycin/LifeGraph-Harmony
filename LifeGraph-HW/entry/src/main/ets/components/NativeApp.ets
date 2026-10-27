@@ -37,6 +37,9 @@ import { FilterTab } from './FilterTab';
 import { TimelineGroupSection } from './TimelineGroupSection';
 import { MainTab, assistantVisible, mainTitle, editorDestination } from '../features/MainNavigation';
 import { NativeBackup } from '../data/NativeBackup';
+import { CardLaunch, DesktopCardConfig, cardLaunchBlocked } from '../features/DesktopCard';
+import { DesktopCardStore } from '../data/DesktopCardStore';
+import { DesktopCardSettings } from './DesktopCardSettings';
 import { PageList, PageScroll } from './PageScroll';
 
 class RouteParam {
@@ -56,7 +59,7 @@ export struct NativeApp {
   @State paths: NavPathStack = new NavPathStack();
   @State tab: MainTab = MainTab.Graph;
   @State ready: boolean = false;
-  @State busy: boolean = false;
+  @State @Watch('busyChanged') busy: boolean = false;
   @State preview: boolean = false;
   @State error: string = '';
   @State notice: string = '';
@@ -118,6 +121,8 @@ export struct NativeApp {
   @State aiVisibleCount: number = 40;
   @State backupMessage: string = '';
   @State storageLabel: string = '尚未统计';
+  @State cardConfig: DesktopCardConfig = new DesktopCardConfig();
+  private cardOpening: boolean = false;
   private assistant: AssistantController | null = null;
   private aiConversationStore: ServiceConversationStore | null = null;
   private aiDraftTimer: number = -1;
@@ -140,6 +145,7 @@ export struct NativeApp {
 
   aboutToAppear(): void {
     this.alive = true;
+    CardLaunch.onRequest = () => { this.handleCardLaunch(); };
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     this.controller.bind(() => this.goBack());
     ApplicationRuntime.onBackground = () => { if (this.recording) { this.stopRecording(); } this.pauseAssistant(); };
@@ -157,6 +163,7 @@ export struct NativeApp {
   aboutToDisappear(): void {
     this.saveAssistantDraft().catch(() => { hilog.warn(0x0000, 'LifeGraph', 'Chat draft could not be saved'); });
     this.alive = false; this.controller.clear(); this.thumbnailGeneration++;
+    CardLaunch.onRequest = null;
     this.aiLinkGeneration++; this.assistant?.dispose(); clearTimeout(this.aiScrollTimer);
     ApplicationRuntime.onBackground = null; clearInterval(this.recordingTimer);
     this.voice.release().catch(() => {});
@@ -199,7 +206,38 @@ export struct NativeApp {
     this.themeChanged();
     this.prepareGraphImages(data);
     if (!this.timelineFoldInitialized) { this.resetTimelineFolds(); }
+    // Card publication is secondary: a launcher failure must never turn a
+    // successful database write into a misleading save failure.
+    if (!this.preview) {
+      try { await DesktopCardStore.publish(this.getUIContext().getHostContext() as common.Context, data); }
+      catch (_) { hilog.warn(0x0000, 'LifeGraphCard', 'Desktop presentation update pending'); }
+    }
   }
+
+  private async openCardSettings(): Promise<void> {
+    if (!this.ready || this.busy || this.cardOpening) { return; }
+    this.cardOpening = true;
+    try {
+      this.cardConfig = await DesktopCardStore.config(this.getUIContext().getHostContext() as common.Context);
+      if (this.alive) { this.open('desktopCard'); }
+    } catch (_) { if (this.alive) { this.error = '无法打开桌面卡片设置，请重试'; } }
+    finally { this.cardOpening = false; }
+  }
+
+  private async handleCardLaunch(): Promise<void> {
+    if (!this.alive || !this.ready || this.busy) { return; }
+    const route = CardLaunch.take();
+    if (route === null) { return; }
+    if (cardLaunchBlocked(this.paths.getAllPathName(), this.recording, this.cardOpening || this.aiSwitching || this.aiSettingsSaving)) {
+      this.notice = '请先完成当前编辑，再点击桌面卡片'; return;
+    }
+    if (route.action === 'settings') { await this.openCardSettings(); }
+    else if (route.action === 'record') { this.editEvent(); }
+    else if (this.data.persons.some((p: Person) => p.id === route.personId && p.deletedAt === null)) { this.open('person', route.personId); }
+    else { this.notice = '这位人物已隐藏或删除，请重新配置桌面卡片'; }
+  }
+
+  private busyChanged(): void { if (!this.busy) { this.handleCardLaunch(); } }
 
   private themeChanged(): void {
     this.colors = paletteFor(this.data.profile, this.systemDark);
@@ -1176,6 +1214,7 @@ export struct NativeApp {
         this.menu('生活分支图谱', () => { this.graphBranchIds = []; this.open('branchGraph'); })
         this.menu('情绪标签', () => this.openTags('emotions'))
         this.menu('外观与主题', () => this.open('appearance'))
+        this.menu('桌面关系卡片', () => this.openCardSettings())
         this.menu('AI 生活助手', () => { this.open('ai'); this.scrollChat(); })
         this.menu('本地备份与恢复', () => { this.backupMessage = ''; this.open('backup'); this.updateStorage(); })
         Text('本机记录 · 无需登录').fontSize(12).fontColor(this.colors.muted).padding(12)
@@ -1511,6 +1550,13 @@ export struct NativeApp {
           }
           else if (name === 'backup') { this.backupPage() }
           else if (name === 'profile') { this.profilePage() }
+          else if (name === 'desktopCard') {
+            DesktopCardSettings({ data: this.data, initial: this.cardConfig, palette: this.colors,
+              onSave: async (config: DesktopCardConfig): Promise<void> => {
+                await DesktopCardStore.publish(this.getUIContext().getHostContext() as common.Context, this.data, config);
+                this.cardConfig = config;
+              } })
+          }
         }.width('100%').height(editorDestination(name) ? '94%' : '100%')
           .padding({ top: 8, left: 20, right: 20, bottom: 12 }).backgroundColor(this.colors.paper)
           .borderRadius({ topLeft: editorDestination(name) ? 24 : 0, topRight: editorDestination(name) ? 24 : 0 })
@@ -1568,6 +1614,7 @@ function readable(error: Error): string {
 }
 
 function routeTitle(name: string, kind: string): string {
+  if (name === 'desktopCard') { return '桌面关系卡片'; }
   if (name === 'people') { return '人物'; }
   if (name === 'person') { return '人物详情'; }
   if (name === 'personEditor') { return '记录人物'; }
