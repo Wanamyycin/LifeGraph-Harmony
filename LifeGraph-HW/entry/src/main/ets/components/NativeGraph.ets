@@ -59,6 +59,19 @@ export struct NativeGraph {
     this.dataChanged();
   }
 
+  private visibilityChanged(visible: boolean): void {
+    if (!this.active) { return; }
+    if (!visible) {
+      try { this.controller.onInactive(); } catch (_) {}
+      return;
+    }
+    try { this.controller.onActive(); } catch (_) {}
+    // A healthy retained page only needs reactivation. Refreshing here clears
+    // its first frame and restarts D3, producing a flash and losing the viewport.
+    // Actual renderer exits and loading failures retain their recovery paths.
+    this.dataChanged();
+  }
+
   private reloadGraph(automatic: boolean = false): void {
     if (!this.active || !this.webVisible) { return; }
     clearTimeout(this.loadTimer);
@@ -118,7 +131,9 @@ export struct NativeGraph {
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       if (this.webVisible) {
-        Web({ src: this.graphSource(), controller: this.controller })
+        // Compose the graph with ArkUI instead of an independent surface. The
+        // emulator can retain a black surface while the SVG/DOM remains alive.
+        Web({ src: this.graphSource(), controller: this.controller, renderMode: RenderMode.SYNC_RENDER })
           .width('100%').height('100%')
           .javaScriptAccess(true).domStorageAccess(false).fileAccess(false)
           .backgroundColor(this.paperColor)
@@ -148,7 +163,7 @@ export struct NativeGraph {
           Button('重新加载图谱').onClick(() => this.reloadGraph())
         }.padding(20).backgroundColor(this.palette.card).borderRadius(16).align(Alignment.Center)
       }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').onVisibleAreaChange([0], (visible: boolean) => this.visibilityChanged(visible))
   }
 }
 
