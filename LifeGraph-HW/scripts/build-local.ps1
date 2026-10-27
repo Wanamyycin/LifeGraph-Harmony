@@ -1,9 +1,14 @@
 param(
   [string]$StudioHome = 'F:/DevEco Studio',
-  [ValidateSet('default', 'ohosTest')][string]$Target = 'default'
+  [ValidateSet('default', 'ohosTest')][string]$Target = 'default',
+  [ValidateSet('debug', 'release')][string]$BuildMode = 'debug',
+  [switch]$AppPack
 )
 
 $ErrorActionPreference = 'Stop'
+if ($AppPack -and ($Target -ne 'default' -or $BuildMode -ne 'release')) {
+  throw 'APP packaging requires -Target default -BuildMode release.'
+}
 $taskProject = Split-Path -Parent $PSScriptRoot
 $taskNode = Join-Path $StudioHome 'tools/node/node.exe'
 $taskHvigor = Join-Path $StudioHome 'tools/hvigor/hvigor/bin/hvigor.js'
@@ -47,8 +52,14 @@ try {
   $env:HVIGOR_USER_HOME = Join-Path $taskProject '.hvigor-direct'
   $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:NODE_HOME + ';' + $env:PATH
   New-Item -ItemType Directory -Path (Join-Path $taskProject 'evidence') -Force | Out-Null
-  $taskLog = Join-Path $taskProject ('evidence/build-' + $Target + '.log')
-  & $taskNode $taskHvigor --mode module -p product=default -p "module=entry@$Target" -p buildMode=debug assembleHap --no-daemon --no-parallel 2>&1 |
+  $taskLogName = if ($AppPack) { 'build-release-app.log' } elseif ($BuildMode -eq 'release') { 'build-release-' + $Target + '.log' } else { 'build-' + $Target + '.log' }
+  $taskLog = Join-Path $taskProject ('evidence/' + $taskLogName)
+  $taskArguments = if ($AppPack) {
+    @('--mode', 'project', '-p', 'product=default', '-p', 'buildMode=release', 'assembleApp', '--no-daemon', '--no-parallel')
+  } else {
+    @('--mode', 'module', '-p', 'product=default', '-p', "module=entry@$Target", '-p', "buildMode=$BuildMode", 'assembleHap', '--no-daemon', '--no-parallel')
+  }
+  & $taskNode $taskHvigor @taskArguments 2>&1 |
     Tee-Object -FilePath $taskLog
   $taskExit = $LASTEXITCODE
 } finally {

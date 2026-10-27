@@ -1,11 +1,20 @@
 {
   "color": [
-    { "name": "card_paper", "value": "#FCFDFB" },
-    { "name": "card_ink", "value": "#243B32" },
-    { "name": "card_muted", "value": "#69776F" },
+    {
+      "name": "card_paper",
+      "value": "#FCFDFB"
+    },
+    {
+      "name": "card_ink",
+      "value": "#243B32"
+    },
+    {
+      "name": "card_muted",
+      "value": "#69776F"
+    },
     {
       "name": "start_window_background",
-      "value": "#FCFDFB"
+      "value": "#5B8C5A"
     }
   ]
 }

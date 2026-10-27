@@ -5,7 +5,7 @@
     { "name": "microphone_reason", "value": "用于录制并保存你的生活语音记录" },
     {
       "name": "module_desc",
-      "value": "Life Graph 人物管理原型"
+      "value": "Life Graph 离线人物关系与生活记录"
     },
     {
       "name": "EntryAbility_desc",

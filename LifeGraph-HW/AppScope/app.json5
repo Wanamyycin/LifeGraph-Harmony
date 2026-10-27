@@ -1,7 +1,7 @@
 {
   "app": {
     "bundleName": "com.lifegraph.harmony.spike",
-    "vendor": "example",
+    "vendor": "LifeGraph",
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "buildVersion": "1",

@@ -12,7 +12,8 @@
 - 图片和音频选择、沙箱复制、录音、播放和图片缩放；取消编辑清理未引用附件。
 - 个人资料、人数和事件数、四套主题、跟随系统／浅色／深色、自定义事件颜色。
 - 鸿蒙版 ZIP 备份导出、预览和恢复；事务失败回滚、媒体校验和路径限制。
-- AI 场景回顾、连续追问、模糊查找、共同经历查询与只读关系建议；三个轻量弹层选择人物、线索与时间，13 个本地工具与可核对的来源。聊天支持历史列表／全文搜索、新建、恢复续聊、草稿与单独删除，旧聊天自动迁入历史，随本机备份保存。AI 服务页配置 OpenAI 兼容地址、API Key 和模型 ID，支持测试连接；密钥可安全保存或仅本次使用，不随业务备份导出。新版界面与真实模型交互仍需设备验收。
+- 当前版本为离线记录应用：移除 AI 页面、原生 API 客户端、API Key 读写及联网权限；底栏为图谱、记录、新建事件、人物、我的。图谱及其脚本完全随包分发，ArkWeb 禁止联网。历史聊天数据的本地编解码仅用于旧备份兼容，不提供聊天入口。
+- 应用、桌面图标与启动图统一为 Life Graph 原项目叶子标识。开发目录与 Git 仓库应保持同步，DevEco 固定打开的目录为 `C:/Users/wangy/Desktop/Harmony/LifeGraph-HW`。
 
 具体完成度、替换决定、未适配部分及验收顺序见 [迁移进度](docs/migration-progress.md)。已发现问题见 [缺陷记录](docs/bugs.md)。
 
@@ -30,17 +31,21 @@
 ```powershell
 ./scripts/build-local.ps1
 ./scripts/build-local.ps1 -Target ohosTest
+./scripts/build-local.ps1 -BuildMode release -AppPack
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-person.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' --disable-warning=ExperimentalWarning scripts/test-core.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-extended.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-native-adapters.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-assistant.cjs
 & 'F:/DevEco Studio/tools/node/node.exe' scripts/test-openai.cjs
+& 'F:/DevEco Studio/tools/node/node.exe' scripts/test-offline-release.cjs
 ```
 
 主应用产物：entry/build/default/outputs/default/entry-default-unsigned.hap。
 测试模块产物：entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap。
 构建日志：evidence/build-default.log、evidence/build-ohosTest.log。
+
+2026-10-28 离线发布收尾范围及实际检查记录见 [离线版本检查](docs/offline-release-check.md)。以下日期段落记录历史版本，涉及 AI 的描述不代表当前版本提供该功能。`test-openai.cjs` 仅保留历史数据格式的纯函数检查，不再加载原生客户端或密钥存储。
 
 2026-10-21：34 项主机测试通过；DevEco 模拟器独立原生 RDB 测试 1 项通过，验证建库、新增人物和事件、非法关系回滚、关闭重开读回。主应用强制停止再启动后，首页仍显示手测留下的三位人物及关系。设备重启、媒体完整流程、备份选择器和真实 AI 服务仍待验收。
 
