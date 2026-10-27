@@ -23,10 +23,10 @@ function fixture(): AppSnapshot {
   data.events = [card, report, dinner]; return data;
 }
 
-@Preview({ title: '助手首页（只读）' })
+@Preview({ title: '我的页面（只读）' })
 @Component
-struct NativeAssistantHomePreview {
-  build() { NativeApp({ forcePreview: true, previewData: fixture(), previewRoute: 'ai' }) }
+struct NativeProfilePreview {
+  build() { NativeApp({ forcePreview: true, previewData: fixture(), previewRoute: 'profile' }) }
 }
 
 @Preview({ title: '新版人物列表（只读）' })
