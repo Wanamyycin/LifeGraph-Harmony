@@ -814,6 +814,7 @@ export struct NativeApp {
           ForEach(this.data.branches, (item: NamedItem) => { FilterTab({ label: item.name, selected: this.filterBranchIds.includes(item.id), palette: this.colors, disabled: this.busy, controlId: 'event-filter-' + item.id, onAction: () => { this.filterBranchIds = toggled(this.filterBranchIds, item.id); this.timelineExpandedEventIds = []; this.resetTimelineFolds(); } }) }, (item: NamedItem) => item.id)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       Row() {
         Text((this.timelineAscending ? '最早在上' : '最近在上') + ' · ' + this.timelineCards().length + ' 件事')
           .fontSize(11).fontColor(this.colors.muted)
@@ -1110,6 +1111,7 @@ export struct NativeApp {
           }
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       Stack({ alignContent: Alignment.BottomStart }) {
         if (this.preview) {
           Column() {
@@ -1151,6 +1153,7 @@ export struct NativeApp {
             }, (item: NamedItem) => item.id)
           }
         }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       }
       Scroll() {
         Row({ space: 8 }) {
@@ -1160,6 +1163,7 @@ export struct NativeApp {
           }, (item: NamedItem) => item.id)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       NativeGraph({ payload: this.graphPayload(mode, centerId), theme: this.graphTheme(), paperColor: this.colors.paper, palette: this.colors,
         onPerson: (id: string) => this.graphPerson(id), onEvent: (id: string) => this.open('event', id),
         onBranch: (id: string) => { this.filterBranchIds = [id]; this.open('events'); } }).layoutWeight(1)

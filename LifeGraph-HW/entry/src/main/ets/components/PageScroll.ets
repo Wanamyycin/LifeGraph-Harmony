@@ -42,6 +42,7 @@ export struct PageScroll {
       Scroll(this.scroller) {
         this.content()
       }.width('100%').height('100%').scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       PageScrollBar({ scroller: this.scroller, tint: this.tint })
         .position({ right: -this.barOutset, top: 0 })
     }.width('100%').height('100%').layoutWeight(1).clip(false)
@@ -66,7 +67,7 @@ export struct PageList {
       List({ space: this.space, scroller: this.scroller }) {
         this.content()
       }.width('100%').height('100%').scrollBar(BarState.Off)
-        .edgeEffect(EdgeEffect.Spring).divider(this.divider)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).divider(this.divider)
       PageScrollBar({ scroller: this.scroller, tint: this.tint })
         .position({ right: -this.barOutset, top: 0 })
     }.width('100%').height(this.viewportHeight > 0 ? this.viewportHeight : '100%')
