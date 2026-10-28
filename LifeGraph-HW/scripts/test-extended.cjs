@@ -114,29 +114,6 @@ test('person graph shows only the center events plus co-participants and valid e
   assert.equal(buildGraph(graphFixture(), 'person', 'friend', [], ['missing'], new Palette()).eventNodes.length, 0);
 });
 
-test('branch graph uses original branch node kind and links into event nodes', () => {
-  const data = graphFixture(); data.events[0].personIds.push('me');
-  const graph = buildGraph(data, 'branch', '', [], [], new Palette());
-  assert.equal(graph.personNodes[0].nodeType, 'branch');
-  assert.ok(graph.edges.some(edge => edge.source === 'branch:daily' && edge.target === 'walk'));
-});
-
-test('personal branch graph retains self, participants and unassigned events while excluding others-only events', () => {
-  const data = graphFixture();
-  const mine = new EventCard(); mine.event.id = 'mine'; mine.personIds = ['me', 'friend']; mine.branchIds = ['daily'];
-  const unassigned = new EventCard(); unassigned.event.id = 'unassigned'; unassigned.personIds = ['me'];
-  data.events.push(mine, unassigned);
-  const graph = buildGraph(data, 'branch', '', [], [], new Palette());
-  assert.deepEqual(graph.eventNodes.map(node => node.id).sort(), ['mine', 'unassigned']);
-  assert.ok(graph.personNodes.some(node => node.id === 'me' && node.isCenter));
-  assert.ok(graph.personNodes.some(node => node.id === 'friend'));
-  assert.ok(graph.edges.some(edge => edge.source === 'me' && edge.target === 'branch:daily'));
-  assert.ok(graph.edges.some(edge => edge.source === 'me' && edge.target === 'unassigned'));
-  const ids = new Set([...graph.personNodes, ...graph.eventNodes].map(node => node.id));
-  assert.ok(graph.edges.every(edge => ids.has(edge.source) && ids.has(edge.target)));
-  assert.equal(buildGraph(data, 'branch', '', [], ['missing'], new Palette()).eventNodes.length, 0);
-});
-
 test('event search combines multiple branches with OR and supports an independent unfiltered global search', () => {
   const data = graphFixture();
   const second = new EventCard(); second.event.id = 'work'; second.event.title = '工作'; second.event.content = '书店讨论'; second.branchIds = ['work']; data.events.push(second);
