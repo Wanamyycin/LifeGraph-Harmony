@@ -131,9 +131,9 @@ export struct NativeGraph {
   build() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       if (this.webVisible) {
-        // Compose the graph with ArkUI instead of an independent surface. The
-        // emulator can retain a black surface while the SVG/DOM remains alive.
-        Web({ src: this.graphSource(), controller: this.controller, renderMode: RenderMode.SYNC_RENDER })
+        // Present the animated SVG on an independent surface. On the emulator,
+        // SYNC_RENDER occasionally presented an empty canvas during rapid dragging.
+        Web({ src: this.graphSource(), controller: this.controller, renderMode: RenderMode.ASYNC_RENDER })
           .width('100%').height('100%')
           .javaScriptAccess(true).domStorageAccess(false).fileAccess(false)
           // ArkWeb also blocks embedded data-URI avatars when online images are disabled.
