@@ -114,6 +114,31 @@ test('person graph shows only the center events plus co-participants and valid e
   assert.equal(buildGraph(graphFixture(), 'person', 'friend', [], ['missing'], new Palette()).eventNodes.length, 0);
 });
 
+test('home, person and life graphs retain local inline avatars and event covers without file URLs', () => {
+  const data = graphFixture();
+  data.persons.find(person => person.id === 'me').avatarAssetId = 'self-avatar';
+  data.persons.find(person => person.id === 'friend').avatarAssetId = 'friend-avatar';
+  data.events[0].personIds.push('me');
+  data.events[0].assets = [{ id: 'cover', role: 'cover' }];
+  const selfImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPTsAAAAASUVORK5CYII=';
+  const friendImage = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, '../AppScope/resources/base/media/foreground.png')).toString('base64');
+  const images = new Map([['self-avatar', selfImage], ['friend-avatar', friendImage], ['cover', selfImage]]);
+  for (const mode of ['home', 'person', 'branch']) {
+    const center = mode === 'person' ? 'friend' : 'me';
+    const graph = buildGraph(data, mode, center, [], [], new Palette(), images);
+    assert.equal(graph.personNodes.find(node => node.id === 'me').avatarUri, selfImage);
+    assert.equal(graph.personNodes.find(node => node.id === 'friend').avatarUri, friendImage);
+    assert.equal(graph.personNodes.find(node => node.id === center).isCenter, true);
+    if (mode !== 'home') {
+      assert.equal(graph.eventNodes[0].coverUri, selfImage);
+      assert.equal(graph.personNodes.find(node => node.id === 'other').avatarUri, null);
+    }
+    const fallback = buildGraph(data, mode, center, [], [], new Palette());
+    assert.ok(fallback.personNodes.every(node => node.avatarUri === null));
+    assert.ok(fallback.eventNodes.every(node => node.coverUri === null));
+  }
+});
+
 test('event search combines multiple branches with OR and supports an independent unfiltered global search', () => {
   const data = graphFixture();
   const second = new EventCard(); second.event.id = 'work'; second.event.title = '工作'; second.event.content = '书店讨论'; second.branchIds = ['work']; data.events.push(second);

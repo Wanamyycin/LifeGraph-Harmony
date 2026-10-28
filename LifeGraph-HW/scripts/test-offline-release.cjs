@@ -43,9 +43,13 @@ test('app source has no native networking client or leftover API settings import
   }
 });
 
-test('ArkWeb blocks network resources while every graph script resolves to a bundled file', () => {
+test('ArkWeb blocks network resources while allowing embedded graph images and bundled scripts', () => {
   const web=read('entry/src/main/ets/components/NativeGraph.ets');
-  assert.match(web,/\.blockNetwork\(true\)/); assert.match(web,/\.onlineImageAccess\(false\)/);
+  assert.match(web,/\.blockNetwork\(true\)/);
+  // ArkWeb also leaves data-URI images pending when onlineImageAccess is false.
+  // Permit image decoding; blockNetwork and the absent INTERNET permission
+  // continue to enforce the offline boundary.
+  assert.match(web,/\.onlineImageAccess\(true\)/); assert.match(web,/\.imageAccess\(true\)/);
   assert.match(web,/\.mixedMode\(MixedMode\.None\)/);
   const graph=path.join(root,'entry/src/main/resources/rawfile/graph');
   const themes=fs.readdirSync(graph).filter(file=>file.endsWith('.html'));

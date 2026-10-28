@@ -136,7 +136,9 @@ export struct NativeGraph {
         Web({ src: this.graphSource(), controller: this.controller, renderMode: RenderMode.SYNC_RENDER })
           .width('100%').height('100%')
           .javaScriptAccess(true).domStorageAccess(false).fileAccess(false)
-          .blockNetwork(true).onlineImageAccess(false).mixedMode(MixedMode.None)
+          // ArkWeb also blocks embedded data-URI avatars when online images are disabled.
+          // Keep the overall network block; allow image decoding for local thumbnails.
+          .blockNetwork(true).onlineImageAccess(true).imageAccess(true).mixedMode(MixedMode.None)
           .backgroundColor(this.paperColor)
           .javaScriptProxy({ object: this.bridge, name: 'nativeBridge', methodList: ['postMessage'], controller: this.controller })
           .onPageBegin(() => {
