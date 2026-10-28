@@ -186,11 +186,18 @@ export struct NativeApp {
     if (!this.alive || !this.ready || this.busy) { return; }
     const route = CardLaunch.take();
     if (route === null) { return; }
-    if (cardLaunchBlocked(this.paths.getAllPathName(), this.recording, this.cardOpening)) {
-      this.notice = '请先完成当前编辑，再点击桌面卡片'; return;
+    // These pages stay in the stack, preserving their settings and event draft.
+    const protectedPages = this.paths.getAllPathName().filter((page: string) => page !== 'desktopCard' && page !== 'eventEditor');
+    if (cardLaunchBlocked(protectedPages, this.recording, this.cardOpening)) {
+      this.getUIContext().getPromptAction().showToast({ message: '请先完成当前编辑，再点击桌面卡片' }); return;
     }
-    if (route.action === 'settings') { await this.openCardSettings(); }
-    else if (route.action === 'record') { this.editEvent(); }
+    this.error = ''; this.notice = '';
+    if (route.action === 'settings') {
+      if (this.paths.moveToTop('desktopCard') === -1) { await this.openCardSettings(); }
+    }
+    else if (route.action === 'record') {
+      if (this.paths.moveToTop('eventEditor') === -1) { this.editEvent(); }
+    }
     else if (this.data.persons.some((p: Person) => p.id === route.personId && p.deletedAt === null)) { this.open('person', route.personId); }
     else { this.notice = '这位人物已隐藏或删除，请重新配置桌面卡片'; }
   }
@@ -1194,9 +1201,10 @@ export struct NativeApp {
           else if (name === 'profile') { this.profilePage() }
           else if (name === 'desktopCard') {
             DesktopCardSettings({ data: this.data, initial: this.cardConfig, palette: this.colors,
-              onSave: async (config: DesktopCardConfig): Promise<void> => {
-                await DesktopCardStore.publish(this.getUIContext().getHostContext() as common.Context, this.data, config);
+              onSave: async (config: DesktopCardConfig): Promise<boolean> => {
+                const updated = await DesktopCardStore.publish(this.getUIContext().getHostContext() as common.Context, this.data, config);
                 this.cardConfig = config;
+                return updated;
               } })
           }
         }.width('100%').height(editorDestination(name) ? '94%' : '100%')

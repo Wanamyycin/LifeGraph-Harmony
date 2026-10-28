@@ -8,7 +8,7 @@ export struct DesktopCardSettings {
   data: AppSnapshot = new AppSnapshot();
   initial: DesktopCardConfig = new DesktopCardConfig();
   palette: Palette = new Palette();
-  onSave: (config: DesktopCardConfig) => Promise<void> = async () => {};
+  onSave: (config: DesktopCardConfig) => Promise<boolean> = async () => false;
   @State ids: string[] = [];
   @State nameMode: string = 'hidden';
   @State saving: boolean = false;
@@ -30,7 +30,10 @@ export struct DesktopCardSettings {
     if (this.saving) { return; }
     this.saving = true; this.error = ''; this.message = '';
     const config = new DesktopCardConfig(); config.personIds = this.ids; config.nameMode = this.nameMode;
-    try { await this.onSave(config); this.message = '已保存，桌面卡片已更新'; }
+    try {
+      const updated = await this.onSave(config);
+      this.message = updated ? '已保存，桌面卡片已更新' : '设置已保存。若尚未添加桌面卡片，请按上方步骤添加。';
+    }
     catch (error) { this.error = String(error).replace(/^Error: /, ''); }
     finally { this.saving = false; }
   }
@@ -38,7 +41,8 @@ export struct DesktopCardSettings {
     Scroll() {
       Column({ space: 18 }) {
         Text('把重要的人留在桌面').fontSize(22).fontWeight(FontWeight.Medium).fontColor(this.palette.text).width('100%')
-        Text('长按桌面应用图标 → 卡片，添加 2×2 关系微图。小球显示序号或简称，点击人物进入应用查看共同经历。所有卡片共用以下设置。').fontSize(14).fontColor(this.palette.muted).width('100%')
+        Text('可先保存设置，再添加桌面卡片。所有卡片共用以下设置，点击卡片中的人物可查看共同经历。').fontSize(14).fontColor(this.palette.muted).width('100%')
+        Text('添加方式：长按桌面应用图标 → 服务卡片 → 关系微图（2×2）→ 添加到桌面。').fontSize(14).fontColor(this.palette.muted).width('100%')
         Text('桌面人物 · ' + this.ids.length.toString() + '/6').fontSize(16).fontColor(this.palette.text).width('100%')
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.data.persons.filter((p: Person) => p.deletedAt === null && p.id !== this.data.profile.defaultPersonId), (p: Person) => {

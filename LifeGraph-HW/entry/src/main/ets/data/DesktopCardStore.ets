@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { formBindingData, formProvider } from '@kit.FormKit';
+import { formBindingData, formInfo, formProvider } from '@kit.FormKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { AppSnapshot } from '../domain/Models';
 import { DesktopCardConfig, DesktopCardData, normalizeCardConfig, projectDesktopCard } from '../features/DesktopCard';
 
@@ -40,8 +41,8 @@ export class DesktopCardStore {
     return typeof text === 'string' && text.length > 0 ? JSON.parse(text) as DesktopCardData : new DesktopCardData();
   }
 
-  static publish(context: common.Context, snapshot: AppSnapshot, config?: DesktopCardConfig): Promise<void> {
-    const job = DesktopCardStore.tail.then(async (): Promise<void> => {
+  static publish(context: common.Context, snapshot: AppSnapshot, config?: DesktopCardConfig): Promise<boolean> {
+    const job = DesktopCardStore.tail.then(async (): Promise<boolean> => {
       const store = await DesktopCardStore.open(context);
       let selected = config;
       if (selected === undefined) {
@@ -55,7 +56,10 @@ export class DesktopCardStore {
       await store.put('presentation', JSON.stringify(data));
       await store.flush();
       // Published form IDs are owned by the OS; no stale ID registry to restore.
-      const forms = await formProvider.getPublishedRunningFormInfos();
+      const forms = await formProvider.getPublishedRunningFormInfos().catch((error: BusinessError): formInfo.RunningFormInfo[] => {
+        if (error.code === 16500100) { return []; }
+        throw new Error('卡片设置已保存，暂时无法读取桌面卡片，请稍后重试');
+      });
       let failed = false;
       for (const form of forms) {
         if (form.formName !== 'RelationshipCard') { continue; }
@@ -63,8 +67,9 @@ export class DesktopCardStore {
         catch (_) { failed = true; }
       }
       if (failed) { throw new Error('卡片设置已保存，部分桌面卡片刷新失败，请重新打开应用后重试'); }
+      return forms.some((form: formInfo.RunningFormInfo) => form.formName === 'RelationshipCard');
     });
-    DesktopCardStore.tail = job.catch(() => {});
+    DesktopCardStore.tail = job.then(() => {}, () => {});
     return job;
   }
 
