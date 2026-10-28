@@ -2,7 +2,7 @@
   "string": [
     { "name": "relationship_card_name", "value": "关系微图" },
     { "name": "relationship_card_description", "value": "回看与重要之人的共同经历，快速记下一件事" },
-    { "name": "microphone_reason", "value": "用于录制并保存你的生活语音记录" },
+    { "name": "microphone_reason", "value": "用于录制生活事件的语音附件；仅在用户主动点击录音并授予麦克风权限后使用，录音保存在本机，拒绝授权不影响其他功能。" },
     {
       "name": "module_desc",
       "value": "Life Graph 离线人物关系与生活记录"
