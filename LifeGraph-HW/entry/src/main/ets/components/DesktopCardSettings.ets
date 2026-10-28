@@ -62,6 +62,6 @@ export struct DesktopCardSettings {
         Button(this.saving ? '正在保存' : '保存卡片设置').width('100%').height(46).backgroundColor(this.palette.primary).fontColor(this.palette.onPrimary)
           .enabled(!this.saving).onClick(() => this.save())
       }.width('100%').padding({ bottom: 24 })
-    }.width('100%').layoutWeight(1)
+    }.width('100%').layoutWeight(1).edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
   }
 }
