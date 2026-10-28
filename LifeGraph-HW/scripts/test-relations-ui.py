@@ -13,7 +13,7 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HDC = pathlib.Path('F:/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe')
 TARGET = '127.0.0.1:5555'
-BUNDLE = 'com.lifegraph.harmony.spike'
+BUNDLE = 'com.njulifegraph.lifegraph'
 WORK = ROOT / '.test' / 'relation-ui'
 WORK.mkdir(parents=True, exist_ok=True)
 NAME = 'LG_REL_FIX_' + str(int(time.time()))

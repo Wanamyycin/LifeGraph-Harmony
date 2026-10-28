@@ -65,6 +65,7 @@ test('ArkWeb blocks network resources while allowing embedded graph images and b
 
 test('launcher, ability and startup consistently use Life Graph and the original leaf asset', () => {
   const app=json('AppScope/app.json5').app;
+  assert.equal(app.bundleName,'com.njulifegraph.lifegraph');
   const module=json('entry/src/main/module.json5').module;
   assert.equal(resource('AppScope','string',app.label),'Life Graph');
   assert.equal(app.vendor,'LifeGraph');
