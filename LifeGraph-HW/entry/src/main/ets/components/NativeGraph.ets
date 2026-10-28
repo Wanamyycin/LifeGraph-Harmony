@@ -153,9 +153,18 @@ export struct NativeGraph {
           .onRenderExited(() => { this.reloadGraph(true); })
       }
       Column({ space: 8 }) {
-        Button('＋').width(42).height(42).padding(0).fontSize(23).backgroundColor(this.palette.card).fontColor(this.palette.text)
+        Button({ type: ButtonType.Circle }) {
+          Stack({ alignContent: Alignment.Center }) {
+            Rect().width(16).height(2).radius(1).fill(this.palette.text)
+            Rect().width(2).height(16).radius(1).fill(this.palette.text)
+          }.width(22).height(22)
+        }.width(42).height(42).padding(0).backgroundColor(this.palette.card)
           .id('graph-zoom-in').accessibilityText('放大图谱').onClick(() => this.send('{"type":"zoomIn"}'))
-        Button('－').width(42).height(42).padding(0).fontSize(23).backgroundColor(this.palette.card).fontColor(this.palette.text)
+        Button({ type: ButtonType.Circle }) {
+          Stack({ alignContent: Alignment.Center }) {
+            Rect().width(16).height(2).radius(1).fill(this.palette.text)
+          }.width(22).height(22)
+        }.width(42).height(42).padding(0).backgroundColor(this.palette.card)
           .id('graph-zoom-out').accessibilityText('缩小图谱').onClick(() => this.send('{"type":"zoomOut"}'))
       }.padding(12)
       if (this.error.length > 0) {
