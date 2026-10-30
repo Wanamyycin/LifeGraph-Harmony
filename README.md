@@ -19,9 +19,9 @@
 
 ## 应用预览
 
-| 生活时间线 | 人物管理 | 桌面关系微图 |
+| 人际图谱 | 生活图谱 | 桌面关系微图 |
 | :---: | :---: | :---: |
-| <img src="LifeGraph-HW/docs/assets/screenshots/03-timeline.png" width="260" alt="生活时间线宣传图"> | <img src="LifeGraph-HW/docs/assets/screenshots/04-people.png" width="260" alt="人物管理宣传图"> | <img src="LifeGraph-HW/docs/assets/screenshots/10-desktop-card.png" width="260" alt="桌面关系微图宣传图"> |
+| <img src="LifeGraph-HW/docs/assets/screenshots/01-relationship-graph.png" width="260" alt="人际图谱宣传图"> | <img src="LifeGraph-HW/docs/assets/screenshots/02-life-graph.png" width="260" alt="生活图谱宣传图"> | <img src="LifeGraph-HW/docs/assets/screenshots/10-desktop-card.png" width="260" alt="桌面关系微图宣传图"> |
 
 [查看全部11张应用宣传图](LifeGraph-HW/docs/assets/screenshots/)
 
