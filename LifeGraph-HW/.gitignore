@@ -14,13 +14,10 @@
 /.hvigor-user
 /.hvigor-direct
 /build-attempt-*.log
-/evidence/*.log
-/evidence/*.jpeg
-/evidence/relations-*.json
-/evidence/buttons-*.json
 **/__pycache__
 **/.preview
 .test
 
 /scripts/test-assistant.local.cjs
 /scripts/test-core.local.cjs
+/evidence/
